@@ -160,7 +160,6 @@ pub struct ErrorResponse {
 #[openapi(
     paths(
         health_doc,
-        speech_doc,
         stream_speech_doc,
         clone_upload_doc,
         list_voices_doc,
@@ -187,15 +186,6 @@ pub struct ApiDoc;
 )]
 #[allow(dead_code)]
 fn health_doc() {}
-
-#[utoipa::path(
-    post,
-    path = "/v1/audio/speech",
-    request_body = SpeechRequest,
-    responses((status = 200, description = "Synthesized WAV or PCM audio"))
-)]
-#[allow(dead_code)]
-fn speech_doc() {}
 
 #[utoipa::path(
     post,
@@ -451,99 +441,8 @@ async fn handle_speech_http(
     engine: Arc<TtsEngine>,
     req: SpeechRequest,
 ) -> Result<Box<dyn Reply>, Infallible> {
-    if req.stream.unwrap_or(false) {
-        return handle_speech_stream_http(engine, req).await;
-    }
-
-    let Some(prompt_text) = req.prompt_text().map(|s| s.to_string()) else {
-        let err = warp::reply::with_status(
-            warp::reply::json(&ErrorResponse {
-                error: "Missing 'input' or 'text' field in request body".to_string(),
-            }),
-            StatusCode::BAD_REQUEST,
-        );
-        return Ok(Box::new(err));
-    };
-
-    let voice = req.resolved_voice().map(|s| s.to_string());
-    let params = req.to_generation_params();
-    let format = req
-        .response_format
-        .as_deref()
-        .unwrap_or("wav")
-        .to_lowercase();
-
-    let out_sr = engine.output_sample_rate();
-    let result = if engine.config.sglang_url.is_some() {
-        engine
-            .synthesize(&prompt_text, voice.as_deref(), params)
-            .await
-    } else {
-        let eng_blocking = engine.clone();
-        tokio::task::spawn_blocking(move || {
-            let mut full = Vec::new();
-            eng_blocking.synthesize_streaming(
-                &prompt_text,
-                voice.as_deref(),
-                params,
-                None,
-                |chunk| {
-                    full.extend_from_slice(&chunk);
-                    Ok(true)
-                },
-            )?;
-            Ok(full)
-        })
-        .await
-        .unwrap_or_else(|e| Err(anyhow::anyhow!("Synthesis worker task panicked: {}", e)))
-    };
-
-    match result {
-        Ok(samples) => {
-            if format == "pcm" {
-                let pcm_bytes = audio::samples_to_pcm16le_bytes(&samples);
-                let resp = warp::http::Response::builder()
-                    .status(StatusCode::OK)
-                    .header(header::CONTENT_TYPE, "audio/pcm")
-                    .header("X-Sample-Rate", out_sr.to_string())
-                    .header("X-Bit-Depth", "16")
-                    .header("X-Channels", "1")
-                    .body(pcm_bytes)
-                    .unwrap();
-                Ok(Box::new(resp))
-            } else {
-                match audio::encode_wav_pcm16(&samples, out_sr) {
-                    Ok(wav_bytes) => {
-                        let resp = warp::http::Response::builder()
-                            .status(StatusCode::OK)
-                            .header(header::CONTENT_TYPE, "audio/wav")
-                            .header("X-Sample-Rate", out_sr.to_string())
-                            .body(wav_bytes)
-                            .unwrap();
-                        Ok(Box::new(resp))
-                    }
-                    Err(e) => {
-                        let err = warp::reply::with_status(
-                            warp::reply::json(&ErrorResponse {
-                                error: e.to_string(),
-                            }),
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                        );
-                        Ok(Box::new(err))
-                    }
-                }
-            }
-        }
-        Err(e) => {
-            let err = warp::reply::with_status(
-                warp::reply::json(&ErrorResponse {
-                    error: e.to_string(),
-                }),
-                StatusCode::INTERNAL_SERVER_ERROR,
-            );
-            Ok(Box::new(err))
-        }
-    }
+    // Pure streaming mode matching spark-tts-rs (never buffers in memory to prevent timeouts)
+    handle_speech_stream_http(engine, req).await
 }
 
 async fn handle_speech_stream_http(
