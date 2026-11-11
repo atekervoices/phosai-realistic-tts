@@ -62,7 +62,6 @@ pub fn build_ort_session(
 
     if matches!(device, ExecutionDevice::Gpu | ExecutionDevice::Auto) {
         let mut providers = Vec::new();
-        let mut cuda_ok = false;
 
         // Try CUDA first if available
         match std::panic::catch_unwind(|| ep::CUDA::is_available()) {
@@ -71,30 +70,13 @@ pub fn build_ort_session(
                     Ok(ep) => {
                         providers.push(ep);
                         active_provider = "CUDAExecutionProvider".to_string();
-                        cuda_ok = true;
                     }
-                    Err(_) => {
-                        eprintln!("[Warn] Failed to build CUDA execution provider, falling back.");
+                    Err(e) => {
+                        eprintln!("[Warn] Failed to build CUDA execution provider: {:?}", e);
                     }
                 }
             }
             _ => {}
-        }
-
-        #[cfg(target_os = "windows")]
-        if !cuda_ok {
-            match std::panic::catch_unwind(|| ep::DirectML::is_available()) {
-                Ok(Ok(true)) => {
-                    match std::panic::catch_unwind(|| ep::DirectML::default().build()) {
-                        Ok(ep) => {
-                            providers.push(ep);
-                            active_provider = "DirectMLExecutionProvider".to_string();
-                        }
-                        Err(_) => {}
-                    }
-                }
-                _ => {}
-            }
         }
 
         // Always add CPU as final fallback provider

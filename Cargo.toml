@@ -20,9 +20,6 @@ ort = { version = "=2.0.0-rc.14", default-features = false, features = [
     "cuda",
     "copy-dylibs",
 ] }
-
-[target.'cfg(windows)'.dependencies]
-ort = { version = "=2.0.0-rc.14", features = ["directml"] }
 ndarray = "0.17"
 
 # Text Normalizer & Tokenizer
@@ -66,4 +63,3 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 [features]
 default = []
 download-binaries = ["ort/download-binaries", "ort/tls-native", "ort/lax-feature-matching"]
-
