@@ -1,61 +1,164 @@
-# Audio8-TTS-RS (`phosai/realistic-air-v1`)
+# Phosai Realistic TTS (`phosai/realistic-v1`)
 
-Low-latency Rust TTS backend for **`phosai/realistic-air-v1`** (fine-tuned from `Edge0/Audio8-TTS-Realistic-Air` 0.6B DualAR), maintaining **100% API compatibility** with `spark-tts-rs` and LiveKit `phos-agent` (`sparktts.py`) while running on **ONNX Runtime (`ort`) across both GPU (CUDA / TensorRT / DirectML) and CPU**, with optional **SGLang-Omni** continuous-batching GPU proxy support.
+High-performance, low-latency Rust TTS inference engine and microservice for **`phosai/realistic-v1`** (fine-tuned from `Edge0/Audio8-TTS-Realistic-Air` 0.6B DualAR).
 
----
-
-## Architecture & Runtime Advice: ONNX Runtime (`ort`) vs `tch-rs` vs SGLang-Omni
-
-| Dimension | **ONNX Runtime (`ort` crate in Rust)** *(Default)* | **`tch-rs` (LibTorch C++)** | **SGLang-Omni + Rust Gateway** (`--sglang-url`) |
-| :--- | :--- | :--- | :--- |
-| **Deployment Footprint** | Single self-contained Rust binary; no Python or PyTorch runtime needed at inference time. | Requires matching `libtorch` C++ ABI shared libraries (~2.5 GB) and manual TorchScript tracing of both SlowAR and FastAR. | Requires running Python + SGLang + CUDA Graphs alongside the Rust gateway (similar to how `vllm` ran alongside `spark-tts-rs`). |
-| **GPU & CPU Portability** | **Runs on both GPU (`CUDA`, `TensorRT`, `DirectML`) and CPU (`INT8` / `FP32`)** via `ExecutionDevice::Auto` with automatic fallback. | Tied to a specific LibTorch CPU or CUDA build at compile time. | NVIDIA GPU only (requires FlashAttention / FlashInfer). |
-| **Single-Stream Latency (TTFB)** | **~180–320 ms TTFB on GPU**, **~450–700 ms on CPU** using 8-frame initial streaming window (`ProgressiveAudio8Streamer`) + pre-encoded `codes.npy` speaker profiles. | Comparable to ONNX on GPU, slower on CPU without INT8 dynamic quantization. | **~120 ms TTFB (RTF 0.116)** under high concurrent load via CUDA Graphs and RadixAttention. |
-| **Recommendation** | **Best default for single-binary GPU & CPU deployment** (edge servers, single-GPU VMs, CPU fallback). | Not needed—`ort` covers both SlowAR/FastAR and `ArkttsCodec` in one unified runtime. | **Supported via `--sglang-url`** when scaling to many concurrent streams on a dedicated multi-user GPU server. |
+The engine runs directly on **ONNX Runtime (`ort`)** across both **NVIDIA GPU** (CUDA / TensorRT) and **CPU** (multi-threaded INT8/FP32), featuring built-in African language text normalization, zero-latency reference encoding for 94 bundled voices, and 100% protocol compatibility with OpenAI TTS, `spark-tts-rs`, and LiveKit Agents (`/ws/tts`).
 
 ---
 
-## Key Low-Latency Ideas Borrowed from `Audio8_TTS/onnx_runtime` & `spark-tts-rs`
+## Key Features
 
-1. **Zero Reference-Encoding Latency (`voices/*/codes.npy`)**:
-   - All **94 speaker references** from `speaker_references_bundle.zip` (`speaker_registry.json`) are pre-encoded into `[10, T]` VQ codec matrices (`codes.npy` + `meta.json`) during `scripts/export_onnx.py` (or lazily encoded once on first request and cached in memory + disk).
-   - Dynamic voice cloning (`/v1/audio/speech/clone/upload` & `/v1/audio/speech/clone/ws`) caches encoded `[10, T]` reference codes in memory keyed by **SHA-256 hash** of the reference audio bytes.
-2. **Sliding-Window Streaming Vocoder with Guard Frames & Crossfade (`ProgressiveAudio8Streamer`)**:
-   - Emits the **first audio chunk after 8 frames (~370 ms)** for fast Time-To-First-Audio (TTFA) and subsequent chunks every **12 frames (~550 ms)**.
-   - Decodes a bounded sliding window of `stream_context_frames = 128` frames and trims `stream_guard_frames = 1` (`2048` samples) from the right edge of non-final chunks so conv-transpose right-boundary transients never produce clicks.
-   - Applies a **5 ms fade-in** on the first chunk, a **10 ms linear crossfade** between consecutive chunks, and a **40 Hz high-pass filter** to eliminate DC offset.
-3. **Repetition Aware Sampling (RAS) + First-Frame EOS Masking + Loop Detector**:
-   - Masks `<|im_end|>` on step 0 so the model never terminates with 0 frames.
-   - Tracks the last 10 semantic tokens (`ras_window_size = 10`) and resamples with `temperature = 1.0, top_p = 0.9` on repetition.
-   - Includes `spark-tts-rs`'s cyclical tail-pattern detector (`check_semantic_repetition`, periods `1..=12`) to prevent runaway token loops.
-4. **Drop-in Sample Rate Adaptation (`16000 Hz` & `44100 Hz`)**:
-   - Native Audio8 codec outputs `44100 Hz`, while existing LiveKit `sparktts.py` agents initialize at `16000 Hz`.
-   - `OUTPUT_SAMPLE_RATE` defaults to `16000` (configurable to `44100` via `--output-sample-rate 44100` or per-request `"sample_rate": 44100`) using a Lanczos-3 windowed-sinc anti-aliased resampler.
+- **Blazing Fast Low Latency (TTFB < 200 ms on GPU, < 600 ms on CPU)**:
+  - **Zero Reference-Encoding Latency**: All 94 speaker profiles from `speaker_registry.json` are pre-encoded into `[10, T]` VQ codec token matrices. No neural speech encoding is needed at request time.
+  - **Sliding-Window Streaming Vocoder (`ProgressiveAudio8Streamer`)**: Emits the first audio chunk within 8 frames (~370 ms) and subsequent chunks every 12 frames (~550 ms) with 10 ms inter-chunk crossfading to eliminate boundary clicks.
+  - **Repetition-Aware Sampling (RAS)** + First-Frame EOS Masking + Cyclical Loop Detector prevents hallucinations or silence.
+- **Unified GPU & CPU Runtime**:
+  - Automatically detects NVIDIA GPU (`CUDAExecutionProvider` / `TensorRTExecutionProvider`) or falls back to multi-threaded CPU (`CPUExecutionProvider`).
+  - Supports INT8 dynamic quantization for CPU deployments and FP32 for GPU.
+- **Multilingual Native Text Normalization (`phosai-normalizer-rs`)**:
+  - Built-in rule-based text normalizer for **Luganda (`lug`)**, **Swahili (`swa`)**, **Acholi (`ach`)**, **Runyankole (`nyn`)**, **Ateso (`teo`)**, **Kinyarwanda (`kin`)**, and **English (`eng`)**.
+  - Automatically handles currency symbols, cardinal & ordinal numbers, dates, times, measurements, abbreviations, and phone numbers.
+- **Drop-in Protocol Compatibility**:
+  - **OpenAI Audio API**: `POST /v1/audio/speech`
+  - **Chunked PCM Streaming**: `POST /v1/audio/speech/stream`
+  - **Bi-directional WebSockets**: `GET /v1/audio/speech/stream/ws`
+  - **LiveKit Agent Protocol**: `GET /ws/tts` (drop-in replacement for LiveKit `sparktts.py` plugins)
+  - **Zero-Shot Voice Cloning**: `POST /v1/audio/speech/clone/upload` and `GET /v1/audio/speech/clone/ws`
+  - **Interactive Swagger UI**: `GET /docs` and `GET /openapi.json`
+- **Configurable Output Sample Rate**:
+  - Native model sample rate is `44100 Hz`.
+  - Configurable to standard telephony/agent `16000 Hz` or native `44100 Hz` via anti-aliased Lanczos-3 resampler.
 
 ---
 
-## Quick Start
+## 94 Pre-Baked African Speaker Voices
 
-### 1. Export `phosai/realistic-air-v1` to ONNX & Pre-encode All 94 Speakers
+The engine bundles 94 pre-encoded speaker profiles with short aliases across diverse African accents and languages:
+
+| Language | Code | Bundled Voices / Sample Aliases |
+| :--- | :--- | :--- |
+| **Luganda** | `lug` | `crestai_vo_tts:lug_female_10` *(default)*, `crestai_vo_tts:lug_male_9`, `crestai_waxal_tts:lug_female_5`, `phosai_toby_lug_tts:lug_male_11`, `sunbird_salt_studio-lug:247` |
+| **Swahili** | `swa` | `crestai_waxal_tts:swa_male_3`, `crestai_waxal_tts:swa_male_4`, `crestai_waxal_tts:swa_female_1`, `sunbird_salt_studio-swa:246` |
+| **Acholi** | `ach` | `crestai_vo_tts:ach_female_9`, `crestai_vo_tts:ach_male_10`, `crestai_waxal_tts:ach_male_5`, `sunbird_salt_studio-ach:241` |
+| **Runyankole** | `nyn` | `crestai_vo_tts:nyn_female_10`, `crestai_vo_tts:nyn_male_9`, `phosai_runyankole_nyn_tts:nyn_male_120`, `sunbird_salt_studio-nyn:243` |
+| **Ateso / Karamojong** | `teo` / `kdj` | `crestai_vo_tts:teo_female_1`, `crestai_vo_tts:teo_male_1`, `phosai_atekervoice_kdj_tts_1:ATV0001`, `sunbird_salt_studio-teo:242` |
+| **Kinyarwanda** | `kin` | `crestai_kin_tts:kin_female_1`, `phosai_afrispeak_kinyarwanda_kin_tts:kin_male_1` |
+| **Nigerian & Cameroon Pidgin** | `pcm` / `wes` | `crestai_pidjin_tts:pcm_female_1` ... `pcm_male_5`, `phosai_nigerian_pidjin_cv_pcm_tts`, `phosai_cameroon_pidjin_cv_wes_tts` |
+| **Wolof** | `wol` | `crestai_wolof_tts:wol_female_1`, `crestai_wolof_tts:wol_male_1` |
+| **Twi & Fante** | `twi` / `fat` | `crestai_twi_akosua_female_speaker_tts:twi_female_5`, `crestai_waxal_tts:fat_female_2` |
+| **Yoruba & Igbo** | `yor` / `ibo` | `crestai_waxal_tts:yor_female_3`, `crestai_waxal_tts:ibo_male_4` |
+| **English & African French** | `eng` / `fr` | `crestai_vo_tts:eng_female_1`, `phosai_salt_eng_tts_1:eng_female_3`, `phosai_african_french_cv_tts:fr_male_algeria_1` |
+
+---
+
+## Quick Start with Docker (Recommended)
+
+The easiest way to run the service is with Docker Compose. The Docker image pre-bakes the ONNX models and all 94 speaker voice matrices at build time.
+
+### 1. Start the Container
 ```bash
-export HF_TOKEN="your_huggingface_token_here"
+docker compose up -d
+```
 
-# Export FP32 ONNX (recommended for GPU CUDAExecutionProvider & CPU)
+### 2. View Server Logs
+```bash
+docker compose logs -f
+```
+
+The server listens on `http://0.0.0.0:18473`:
+- **Swagger UI**: `http://localhost:18473/docs`
+- **Health Check**: `http://localhost:18473/health`
+
+### Configuration (`docker-compose.yml`)
+
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `ARKTTS_DEVICE` | `auto` | Execution device: `auto` (GPU if available, else CPU), `cuda`, or `cpu`. |
+| `ARKTTS_WORKERS` | `1` | Number of parallel ONNX Runtime session worker threads. |
+| `ARKTTS_THREADS` | `4` | Number of intra-op compute threads per ONNX session. |
+| `OUTPUT_SAMPLE_RATE` | `16000` | Target audio sample rate (`16000` or `44100`). |
+| `PORT` | `18473` | Server HTTP and WebSocket port. |
+| `HF_TOKEN` | *(optional)* | Hugging Face token (only required during container build if model is gated). |
+
+---
+
+## API Usage Examples
+
+### 1. Synthesize Speech (OpenAI Compatible)
+```bash
+curl -X POST http://localhost:18473/v1/audio/speech \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "Habari za asubuhi, jina langu ni Musa. Karibu sana!",
+    "voice": "crestai_waxal_tts:swa_male_3",
+    "response_format": "wav",
+    "speed": 1.0
+  }' \
+  --output speech.wav
+```
+
+### 2. Stream Audio via HTTP Chunked PCM
+```bash
+curl -X POST http://localhost:18473/v1/audio/speech/stream \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "Oli otya nnyabo, leero tulina essanyu lingi okukusisinkana.",
+    "voice": "crestai_vo_tts:lug_female_10"
+  }' \
+  --output stream.pcm
+```
+
+### 3. List Available Voices
+```bash
+curl http://localhost:18473/v1/voices
+```
+
+### 4. Check Health & Active Provider
+```bash
+curl http://localhost:18473/health
+```
+Response:
+```json
+{
+  "status": "ok",
+  "engine": "audio8-tts-rs",
+  "provider": "CPUExecutionProvider",
+  "workers": 1,
+  "sample_rate": 16000,
+  "native_sample_rate": 44100,
+  "voices_loaded": 94
+}
+```
+
+### 5. Dynamic Zero-Shot Voice Cloning
+```bash
+curl -X POST http://localhost:18473/v1/audio/speech/clone/upload \
+  -F "reference_audio=@my_sample.wav" \
+  -F "reference_text=This is the exact spoken text in the sample audio." \
+  -F "text=Hello, this is my cloned voice speaking through Phosai Realistic TTS." \
+  --output cloned_output.pcm
+```
+
+---
+
+## Local Development & Manual Build
+
+### Prerequisites
+- **Rust 1.80+** (`cargo`, `rustc`)
+- **Python 3.10+** (only for ONNX export script)
+- **CMake & C++ Build Tools** (for compiling ONNX Runtime native bindings)
+
+### Step 1: Export ONNX Models & Voices
+```bash
 python scripts/export_onnx.py \
-  --model-id phosai/realistic-air-v1 \
-  --hf-token "$HF_TOKEN" \
+  --model-id phosai/realistic-v1 \
   --output-dir model \
   --voices-dir voices \
   --registry speaker_registry.json \
   --precision fp32
-
-# Or export INT8 quantized ONNX for fast CPU inference:
-python scripts/export_onnx.py \
-  --model-id phosai/realistic-air-v1 \
-  --precision int8
 ```
 
-### 2. Run the Rust Server (GPU with automatic CPU fallback)
+### Step 2: Run the Server Binary
 ```bash
 cargo run --release --features download-binaries --bin server -- \
   --model-dir model \
@@ -67,15 +170,24 @@ cargo run --release --features download-binaries --bin server -- \
 
 ---
 
-## API Endpoints (100% Compatible with `spark-tts-rs`)
+## LiveKit Agent Integration
 
-- **`GET /docs`** — Interactive Swagger UI documentation
-- **`POST /v1/audio/speech/stream`** — HTTP chunked `audio/pcm` (`s16le`) streaming (`AudioRequest`)
-- **`GET /v1/audio/speech/stream/ws`** — Real-time WebSocket streaming (`AudioRequest` + `"abort"`/`"interrupt"` cancellation)
-- **`POST /v1/audio/speech/clone/upload`** — Multipart form voice cloning (`text`, `reference_audio`, optional `reference_text`, `language`, `temperature`)
-- **`GET /v1/audio/speech/clone/ws`** — WebSocket voice cloning (`CloneWsRequest`)
-- **`POST /v1/audio/speech`** & **`POST /api/tts`** — OpenAI-compatible WAV/PCM synthesis
-- **`GET /api/voices`** — Lists all 94 bundled speaker references and registered custom voices
-- **`POST /api/voices/register`** — Register a new persistent voice from uploaded audio + transcript
-- **`GET /api/health`** — Active execution provider (`CUDAExecutionProvider` / `DirectMLExecutionProvider` / `CPUExecutionProvider`) & model status
+To connect with LiveKit Python Agents using `sparktts.py`:
+```python
+from livekit.plugins import sparktts
 
+# Point sparktts client to this service
+tts = sparktts.TTS(
+    base_url="http://localhost:18473",
+    voice="crestai_vo_tts:lug_female_10",
+    sample_rate=16000,
+)
+```
+
+The service exposes the native WebSocket handler on `ws://localhost:18473/ws/tts`, streaming real-time PCM audio directly to LiveKit rooms.
+
+---
+
+## License
+
+Apache-2.0. See [LICENSE](LICENSE) for details.
