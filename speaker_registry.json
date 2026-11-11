@@ -1,0 +1,472 @@
+{
+  "sunbird_salt_studio-swa:246": {
+    "reference_audio": "speaker_references/sunbird_salt_studio-swa_246.wav",
+    "reference_text": "Kuandikishwa kwa watu ambao hawajadhibitishwa katika siasa na rais itavuruga chama tawala",
+    "source_path": "/workspace/audio8_salt/audio/reference_0000.wav"
+  },
+  "crestai_vo_tts:nyn_male_9": {
+    "reference_audio": "speaker_references/crestai_vo_tts_nyn_male_9.wav",
+    "reference_text": "Tindikumanya ngu ekyo nikirungi, kwonka, ka tugire ngu naakikunda. Kare, ninteekateeka ngu nyeteekateekire.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0001.wav"
+  },
+  "crestai_wolof_tts:wol_female_1": {
+    "reference_audio": "speaker_references/crestai_wolof_tts_wol_female_1.wav",
+    "reference_text": "Gii naxaatekat !",
+    "source_path": "/workspace/audio8_salt/audio/reference_0002.wav"
+  },
+  "sunbird_salt_studio-nyn:243": {
+    "reference_audio": "speaker_references/sunbird_salt_studio-nyn_243.wav",
+    "reference_text": "Uganda neetunga esente nyingi kuruga omu bigombe by'aheeru okukira ezi erikutunga kuruga omu mishoro y'omu ihanga.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0003.wav"
+  },
+  "phosai_afrispeak_kinyarwanda_kin_tts:kin_male_1": {
+    "reference_audio": "speaker_references/phosai_afrispeak_kinyarwanda_kin_tts_kin_male_1.wav",
+    "reference_text": "Ajya muri Firigo afata amata arayazana aranywa.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0004.wav"
+  },
+  "phosai_cameroon_pidjin_cv_wes_tts:wes_female_106": {
+    "reference_audio": "speaker_references/phosai_cameroon_pidjin_cv_wes_tts_wes_female_106.wav",
+    "reference_text": "Yi di cold me skin.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0005.wav"
+  },
+  "crestai_vo_tts:lug_female_10": {
+    "reference_audio": "speaker_references/crestai_vo_tts_lug_female_10.wav",
+    "reference_text": "Tugabane amagoba nga tetunnaggalawo bizinensi.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0006.wav"
+  },
+  "crestai_vo_tts:nyn_female_10": {
+    "reference_audio": "speaker_references/crestai_vo_tts_nyn_female_10.wav",
+    "reference_text": "Nihaza kubaho okugabana ebintu omu buringaniza omu disiturikiti.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0007.wav"
+  },
+  "crestai_wolof_tts:wol_male_1": {
+    "reference_audio": "speaker_references/crestai_wolof_tts_wol_male_1.wav",
+    "reference_text": "May jaam bu tuuti buy jéem di taggub sangam.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0008.wav"
+  },
+  "sunbird_salt_studio-teo:242": {
+    "reference_audio": "speaker_references/sunbird_salt_studio-teo_242.wav",
+    "reference_text": "Asusaitin nuka akoriok iyasete aitolom ikorion.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0009.wav"
+  },
+  "crestai_vo_tts:xog_female_1": {
+    "reference_audio": "speaker_references/crestai_vo_tts_xog_female_1.wav",
+    "reference_text": "Omusudha gwensiri gwali mungi inho omwaka ogwo.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0010.wav"
+  },
+  "phosai_toby_lug_tts:lug_male_11": {
+    "reference_audio": "speaker_references/phosai_toby_lug_tts_lug_male_11.wav",
+    "reference_text": "Abantu babadde mu Uganda okumala emyaka nga emitwalo etaano.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0011.wav"
+  },
+  "crestai_vo_tts:ach_male_10": {
+    "reference_audio": "speaker_references/crestai_vo_tts_ach_male_10.wav",
+    "reference_text": "Gukwano lok kom pur ki kwero kwan gi i mwaka ni",
+    "source_path": "/workspace/audio8_salt/audio/reference_0012.wav"
+  },
+  "phosai_nigerian_pidjin_cv_pcm_tts:pcm_female_106": {
+    "reference_audio": "speaker_references/phosai_nigerian_pidjin_cv_pcm_tts_pcm_female_106.wav",
+    "reference_text": "If we cach dat kin pesin, im no go kno di tin wey we do am.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0013.wav"
+  },
+  "phosai_atekervoice_kdj_tts_1:ATV0001": {
+    "reference_audio": "speaker_references/phosai_atekervoice_kdj_tts_1_ATV0001.wav",
+    "reference_text": "Ngolo pus",
+    "source_path": "/workspace/audio8_salt/audio/reference_0014.wav"
+  },
+  "sunbird_salt_studio-ach:241": {
+    "reference_audio": "speaker_references/sunbird_salt_studio-ach_241.wav",
+    "reference_text": "Bulu ki Lutino mito gunong tam inino ducu kibot lunyodogi",
+    "source_path": "/workspace/audio8_salt/audio/reference_0015.wav"
+  },
+  "phosai_cameroon_pidjin_cv_wes_tts:wes_female_109": {
+    "reference_audio": "speaker_references/phosai_cameroon_pidjin_cv_wes_tts_wes_female_109.wav",
+    "reference_text": "De tin di funny me.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0016.wav"
+  },
+  "phosai_cameroon_pidjin_cv_wes_tts:wes_female_110": {
+    "reference_audio": "speaker_references/phosai_cameroon_pidjin_cv_wes_tts_wes_female_110.wav",
+    "reference_text": "All man don kam wok wok wok, you no be dey.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0017.wav"
+  },
+  "sunbird_salt_studio-lgg:245": {
+    "reference_audio": "speaker_references/sunbird_salt_studio-lgg_245.wav",
+    "reference_text": "Le e'yo azi 'bani nze agbatara 'di ma alea ma fu amve o'bi eyidri ku.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0018.wav"
+  },
+  "crestai_vo_tts:eng_female_1": {
+    "reference_audio": "speaker_references/crestai_vo_tts_eng_female_1.wav",
+    "reference_text": "But it doesn't matter. Maybe if it's enough to- to put me on edge, then it'll be enough to keep the rest of them away too.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0019.wav"
+  },
+  "crestai_pidjin_tts:pcm_female_3": {
+    "reference_audio": "speaker_references/crestai_pidjin_tts_pcm_female_3.wav",
+    "reference_text": "who women dey believe say di more dem yellow di more dem go fine dey successful and marry",
+    "source_path": "/workspace/audio8_salt/audio/reference_0020.wav"
+  },
+  "crestai_kin_tts:kin_female_1": {
+    "reference_audio": "speaker_references/crestai_kin_tts_kin_female_1.wav",
+    "reference_text": "ijwi ry'uyu mukobwa ukiri muto ryumvikana risebya umugabo ufungiye mucyumba cyijimye",
+    "source_path": "/workspace/audio8_salt/audio/reference_0021.wav"
+  },
+  "sunbird_salt_studio-lug:247": {
+    "reference_audio": "speaker_references/sunbird_salt_studio-lug_247.wav",
+    "reference_text": "Abantu bali mu kuweebwa magezi ku bikwata ku bulwadde.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0022.wav"
+  },
+  "sunbird_salt_studio-eng:246": {
+    "reference_audio": "speaker_references/sunbird_salt_studio-eng_246.wav",
+    "reference_text": "We have some misunderstandings are mongs us.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0023.wav"
+  },
+  "crestai_vo_tts:ach_female_9": {
+    "reference_audio": "speaker_references/crestai_vo_tts_ach_female_9.wav",
+    "reference_text": "Lupur twero nongo ber pa tam i kom gengo two.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0024.wav"
+  },
+  "phosai_nigerian_pidjin_cv_pcm_tts:pcm_male_104": {
+    "reference_audio": "speaker_references/phosai_nigerian_pidjin_cv_pcm_tts_pcm_male_104.wav",
+    "reference_text": "I look my pocket, walahi no moni dey.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0025.wav"
+  },
+  "phosai_nigerian_pidjin_cv_pcm_tts:pcm_male_102": {
+    "reference_audio": "speaker_references/phosai_nigerian_pidjin_cv_pcm_tts_pcm_male_102.wav",
+    "reference_text": "Dat na dey troblem wit all de pipus, dem too dey tok lis.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0026.wav"
+  },
+  "phosai_african_french_cv_tts:fr_male_benin_2": {
+    "reference_audio": "speaker_references/phosai_african_french_cv_tts_fr_male_benin_2.wav",
+    "reference_text": "Il est l'équivalent de WinMerge, sous Microsoft Windows.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0027.wav"
+  },
+  "crestai_vo_tts:xog_male_1": {
+    "reference_audio": "speaker_references/crestai_vo_tts_xog_male_1.wav",
+    "reference_text": "Empulizagania embi wagati w'abasadha n'abakazi kisobola okuvaaku enkola edhokutangira amabunda okulemererwa.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0028.wav"
+  },
+  "phosai_cameroon_pidjin_cv_wes_tts:wes_female_102": {
+    "reference_audio": "speaker_references/phosai_cameroon_pidjin_cv_wes_tts_wes_female_102.wav",
+    "reference_text": "True true so na all we dis.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0029.wav"
+  },
+  "crestai_vo_tts:teo_male_1": {
+    "reference_audio": "speaker_references/crestai_vo_tts_teo_male_1.wav",
+    "reference_text": "Epatana adeka naka Anthrax kotoma itiang adepar itunga ko Uganda.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0030.wav"
+  },
+  "phosai_afrispeak_kinyarwanda_kin_tts:kin_female_2": {
+    "reference_audio": "speaker_references/phosai_afrispeak_kinyarwanda_kin_tts_kin_female_2.wav",
+    "reference_text": "Ni amasomo bahawe agamije kubongerera ubumenyi bubafasha kuzuza inshingano zabo.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0031.wav"
+  },
+  "phosai_cameroon_pidjin_cv_wes_tts:wes_female_104": {
+    "reference_audio": "speaker_references/phosai_cameroon_pidjin_cv_wes_tts_wes_female_104.wav",
+    "reference_text": "Shu get new new kombi dem.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0032.wav"
+  },
+  "crestai_vo_tts:lug_male_9": {
+    "reference_audio": "speaker_references/crestai_vo_tts_lug_male_9.wav",
+    "reference_text": "Ekitongole ky’ebyobulambuzi kyolekedde okusoomoozebwa okuwerako nga tebalina kapito .",
+    "source_path": "/workspace/audio8_salt/audio/reference_0033.wav"
+  },
+  "crestai_vo_tts:eng_male_1": {
+    "reference_audio": "speaker_references/crestai_vo_tts_eng_male_1.wav",
+    "reference_text": "Yeah, of course it is. I mean, you're not having nightmares on purpose, so, of course, I want to comfort you and-",
+    "source_path": "/workspace/audio8_salt/audio/reference_0034.wav"
+  },
+  "phosai_nigerian_pidjin_cv_pcm_tts:pcm_female_104": {
+    "reference_audio": "speaker_references/phosai_nigerian_pidjin_cv_pcm_tts_pcm_female_104.wav",
+    "reference_text": "Sleep don de kom worry dem.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0035.wav"
+  },
+  "phosai_nigerian_pidjin_cv_pcm_tts:pcm_male_103": {
+    "reference_audio": "speaker_references/phosai_nigerian_pidjin_cv_pcm_tts_pcm_male_103.wav",
+    "reference_text": "Kom giv me my moni for my haws.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0036.wav"
+  },
+  "crestai_waxal_tts:lug_male_6": {
+    "reference_audio": "speaker_references/crestai_waxal_tts_lug_male_6.wav",
+    "reference_text": "Apollo Milton Obote, eyazaalibwa nga abiri mu munaana Ogwekkumineebiri lukumi mu lwenda abiri mu etaano, ye ssaabaminisita wa Uganda eyasooka ate era nga yaweerezaako nga pulezidenti wa Uganda mu bisanja bibiri eby’enjawulo.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0037.wav"
+  },
+  "phosai_salt_eng_tts_1:eng_female_3": {
+    "reference_audio": "speaker_references/phosai_salt_eng_tts_1_eng_female_3.wav",
+    "reference_text": "The speaker acknowledged receipt of the ambulances.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0038.wav"
+  },
+  "crestai_waxal_tts:kik_male_2": {
+    "reference_audio": "speaker_references/crestai_waxal_tts_kik_male_2.wav",
+    "reference_text": "Tūgwìka magongona meerì na thikū igìrì",
+    "source_path": "/workspace/audio8_salt/audio/reference_0039.wav"
+  },
+  "crestai_twi_akosua_female_speaker_tts:twi_female_5": {
+    "reference_audio": "speaker_references/crestai_twi_akosua_female_speaker_tts_twi_female_5.wav",
+    "reference_text": "adamfo bɔne",
+    "source_path": "/workspace/audio8_salt/audio/reference_0040.wav"
+  },
+  "crestai_pidjin_tts:pcm_female_1": {
+    "reference_audio": "speaker_references/crestai_pidjin_tts_pcm_female_1.wav",
+    "reference_text": "el rufai say in fact aisha no vote for buhari for di primary arrangement wey dem do for 2014",
+    "source_path": "/workspace/audio8_salt/audio/reference_0041.wav"
+  },
+  "phosai_cameroon_pidjin_cv_wes_tts:wes_female_105": {
+    "reference_audio": "speaker_references/phosai_cameroon_pidjin_cv_wes_tts_wes_female_105.wav",
+    "reference_text": "No mami Satan dey for road.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0042.wav"
+  },
+  "crestai_waxal_tts:nyn_female_2": {
+    "reference_audio": "speaker_references/crestai_waxal_tts_nyn_female_2.wav",
+    "reference_text": "Emipiira ena y’erangi ya kinyaasti eri omunda omu bokisi y’eshonda ina etsigire erangi ya buruuru. Ebokisi y’eshonda ina y’erangi ya buruuru ainemu obupiira buna bw’erangi ya kinyaatsi.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0043.wav"
+  },
+  "crestai_vo_tts:teo_female_1": {
+    "reference_audio": "speaker_references/crestai_vo_tts_teo_female_1.wav",
+    "reference_text": "Emamete abeei esokoni apakio nu.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0044.wav"
+  },
+  "crestai_waxal_tts:lug_male_1": {
+    "reference_audio": "speaker_references/crestai_waxal_tts_lug_male_1.wav",
+    "reference_text": "Mu bidduka Kasenge by’alina mulimu eggaali enzirugavu era eri wansi ku ttaka. Erina emipiira ebiri ekitebe n’amayembe era erabika eri munda mu nnyumba.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0045.wav"
+  },
+  "crestai_pidjin_tts:pcm_female_2": {
+    "reference_audio": "speaker_references/crestai_pidjin_tts_pcm_female_2.wav",
+    "reference_text": "i used di word in jest",
+    "source_path": "/workspace/audio8_salt/audio/reference_0046.wav"
+  },
+  "crestai_waxal_tts:lug_female_5": {
+    "reference_audio": "speaker_references/crestai_waxal_tts_lug_female_5.wav",
+    "reference_text": "Omusomesa yatukubye embooko ttaano ku buli bibuuzo bitaano bye twagudde mu lupapula lwe.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0047.wav"
+  },
+  "crestai_waxal_tts:twi_female_4": {
+    "reference_audio": "speaker_references/crestai_waxal_tts_twi_female_4.wav",
+    "reference_text": "Kegyetia yɛ beaeɛ bi a agye din na nnipa dodoɔ no ara taa di hɔ dwa wɔ Kumasi. Kane no ɛno ara ne sɛ adetɔnfoɔ nneɛma sisi hɔ a wɔretɔn, seesei deɛ wɔasi dan kɛseɛ pa ara wɔ hɔ a sotɔɔ ahodoɔ hyehyɛ mu. Ɛhɔ na adetɔfoɔ kɔtɔ wɔn nneɛma. Adum nso bɛn Kegyetia hɔ ara.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0048.wav"
+  },
+  "crestai_pidjin_tts:pcm_male_5": {
+    "reference_audio": "speaker_references/crestai_pidjin_tts_pcm_male_5.wav",
+    "reference_text": "free and open internet na big tin for government matter sef",
+    "source_path": "/workspace/audio8_salt/audio/reference_0049.wav"
+  },
+  "crestai_waxal_tts:fat_female_2": {
+    "reference_audio": "speaker_references/crestai_waxal_tts_fat_female_2.wav",
+    "reference_text": "Ebɛn kasa na nkorↄfo ka wↄ Abidjan?\n\nNkorↄfo ka Frɛnkye na Borↄfo wↄ Abidjan.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0050.wav"
+  },
+  "crestai_waxal_tts:ach_female_6": {
+    "reference_audio": "speaker_references/crestai_waxal_tts_ach_female_6.wav",
+    "reference_text": "Pyerabicel pok ki aryo bedo pyeradek.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0051.wav"
+  },
+  "crestai_pidjin_tts:pcm_female_5": {
+    "reference_audio": "speaker_references/crestai_pidjin_tts_pcm_female_5.wav",
+    "reference_text": "fayose say make buhari carry lawal and oke give efcc make dem handle and him say make",
+    "source_path": "/workspace/audio8_salt/audio/reference_0052.wav"
+  },
+  "crestai_waxal_tts:ach_female_2": {
+    "reference_audio": "speaker_references/crestai_waxal_tts_ach_female_2.wav",
+    "reference_text": "Pyerabicel ka i poko ki aryo kelo pyeradek.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0053.wav"
+  },
+  "crestai_waxal_tts:ibo_male_4": {
+    "reference_audio": "speaker_references/crestai_waxal_tts_ibo_male_4.wav",
+    "reference_text": "Lagos bụ obodo ihe gbasara azụmahịa kacha aga nke ọma.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0054.wav"
+  },
+  "crestai_waxal_tts:lug_female_7": {
+    "reference_audio": "speaker_references/crestai_waxal_tts_lug_female_7.wav",
+    "reference_text": "Ekika ky’emmere eyitibwa muwogo ky’ekisinga okwettanirwa abantu b’e Kamuli ne Tororo era abantu baayo be basinga n’okulima emmere ya muwogo mu ggwanga lya Uganda.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0055.wav"
+  },
+  "phosai_nigerian_pidjin_cv_pcm_tts:pcm_female_105": {
+    "reference_audio": "speaker_references/phosai_nigerian_pidjin_cv_pcm_tts_pcm_female_105.wav",
+    "reference_text": "I won go haws.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0056.wav"
+  },
+  "crestai_waxal_tts:kik_male_1": {
+    "reference_audio": "speaker_references/crestai_waxal_tts_kik_male_1.wav",
+    "reference_text": "Jumamothi niguo mûthenya wa mûico wa kuumia",
+    "source_path": "/workspace/audio8_salt/audio/reference_0057.wav"
+  },
+  "crestai_waxal_tts:nyn_female_1": {
+    "reference_audio": "speaker_references/crestai_waxal_tts_nyn_female_1.wav",
+    "reference_text": "Ikumi nibiri waatezamu ina nootunga ana namunaana.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0058.wav"
+  },
+  "sunbird_salt_studio-eng:248": {
+    "reference_audio": "speaker_references/sunbird_salt_studio-eng_248.wav",
+    "reference_text": "He wanted to get more training in beekeeping.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0059.wav"
+  },
+  "phosai_runyankole_nyn_tts:nyn_male_160": {
+    "reference_audio": "speaker_references/phosai_runyankole_nyn_tts_nyn_male_160.wav",
+    "reference_text": "nindeeba amaizi ndeeba n'amabaare hamwe na goonya eyeshami eriyo neeza kutaaha omu maizi kandi ndeebaho n'ebibaare bitungikiriirine kandi ndeebamu itaka hamwe n'obunyaatsi",
+    "source_path": "/workspace/audio8_salt/audio/reference_0060.wav"
+  },
+  "crestai_waxal_tts:twi_male_1": {
+    "reference_audio": "speaker_references/crestai_waxal_tts_twi_male_1.wav",
+    "reference_text": "Ogyam de, ɛyɛ Kwabena mmrane, na yɛwoo no Benada.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0061.wav"
+  },
+  "crestai_pidjin_tts:pcm_female_4": {
+    "reference_audio": "speaker_references/crestai_pidjin_tts_pcm_female_4.wav",
+    "reference_text": "also on top di 1.6 billion flood fund nema oga",
+    "source_path": "/workspace/audio8_salt/audio/reference_0062.wav"
+  },
+  "phosai_cameroon_pidjin_cv_wes_tts:wes_female_107": {
+    "reference_audio": "speaker_references/phosai_cameroon_pidjin_cv_wes_tts_wes_female_107.wav",
+    "reference_text": "Tumbu dem di komot dey.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0063.wav"
+  },
+  "crestai_waxal_tts:swa_male_3": {
+    "reference_audio": "speaker_references/crestai_waxal_tts_swa_male_3.wav",
+    "reference_text": "Inadaiwa kuwa watu wa Kaskazini mwa Uganda hula mhogo sana.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0064.wav"
+  },
+  "phosai_runyankole_nyn_tts:nyn_male_120": {
+    "reference_audio": "speaker_references/phosai_runyankole_nyn_tts_nyn_male_120.wav",
+    "reference_text": "Omukishushani eki nindeeba ekikoona kyemereire aha mukankaana kiriyo nikisikamu otwizi otukuba turi ahabumuri obwetoroire omukankaana.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0065.wav"
+  },
+  "sunbird_salt_studio-eng:243": {
+    "reference_audio": "speaker_references/sunbird_salt_studio-eng_243.wav",
+    "reference_text": "The pandemic caused disruption to many business activities.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0066.wav"
+  },
+  "phosai_cameroon_pidjin_cv_wes_tts:wes_female_108": {
+    "reference_audio": "speaker_references/phosai_cameroon_pidjin_cv_wes_tts_wes_female_108.wav",
+    "reference_text": "I be glad say you kam.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0067.wav"
+  },
+  "crestai_waxal_tts:swa_male_4": {
+    "reference_audio": "speaker_references/crestai_waxal_tts_swa_male_4.wav",
+    "reference_text": "Nchini Tanzania siku kuu za kidini na siku kuu za kiserikali ni pamoja na nane nane, saba saba, siku ya uhuru wa Tanganyika, muungano wa Tanganyika na Zanzibar, pasaka, Ijumaa kuu, siku kuu ya idi ya kuchinja, krisimasi, mwaka mpya, siku ya kufungua zawadi na siku ya wafanyakazi.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0068.wav"
+  },
+  "crestai_waxal_tts:lug_male_3": {
+    "reference_audio": "speaker_references/crestai_waxal_tts_lug_male_3.wav",
+    "reference_text": "Olunaku lw’Abazira lwe lunaku abantu abalina kye bakoledde eggwanga oba abatadde ettoffaali mu kuzimba Uganda kwe baweerwa emidaali awamu n’okusiimibwa.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0069.wav"
+  },
+  "crestai_waxal_tts:fat_female_4": {
+    "reference_audio": "speaker_references/crestai_waxal_tts_fat_female_4.wav",
+    "reference_text": "Ghana Fahodzi da, Borɔnya da, ɔsɔfo, asɔrdan, nyamesɛnka, Ramadan, ndaasesom, Ahobaa afahyɛ, Easter Monday, Fida pa, Constitution day, Afe fofor da, Hogbetsotso afahyɛ, Aboakyer afahyɛ, Homowo afahyɛ, Bakatue afahyɛ, Fetu afahyɛ, Akwambɔ afahyɛ, Akwasidae afahyɛ, Opensuo afahyɛ",
+    "source_path": "/workspace/audio8_salt/audio/reference_0070.wav"
+  },
+  "phosai_african_french_cv_tts:fr_male_algeria_1": {
+    "reference_audio": "speaker_references/phosai_african_french_cv_tts_fr_male_algeria_1.wav",
+    "reference_text": "Il travaille comme mécanicien.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0071.wav"
+  },
+  "crestai_waxal_tts:twi_male_3": {
+    "reference_audio": "speaker_references/crestai_waxal_tts_twi_male_3.wav",
+    "reference_text": "Woduru Oti Mantam mu na worepɛ aduane pa adi a, tu anammɔn kɔ Royal Spot Adidibea a ɛwɔ Gyasekan kwan so no. \nGolden City Park yɛ beaeɛ a agokansie ahodoɔ kɔ so wɔ Berekum.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0072.wav"
+  },
+  "crestai_waxal_tts:kik_female_1": {
+    "reference_audio": "speaker_references/crestai_waxal_tts_kik_female_1.wav",
+    "reference_text": "Iria ría Naivasha rúkoragwo na maaí matheru matarí na cumbí.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0073.wav"
+  },
+  "crestai_waxal_tts:kik_male_3": {
+    "reference_audio": "speaker_references/crestai_waxal_tts_kik_male_3.wav",
+    "reference_text": "Andu oothe maciaritwo tuhu na maiganaine guoka ni guitikirika na ona ihooto.Nimahetwo itùmi cia kumenya weega na ùuru na mabatìì gùikarania na ùrumwe.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0074.wav"
+  },
+  "crestai_waxal_tts:swa_female_6": {
+    "reference_audio": "speaker_references/crestai_waxal_tts_swa_female_6.wav",
+    "reference_text": "Khumusi mbili zidisha themanini ni sawa na thelathini na mbili.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0075.wav"
+  },
+  "crestai_waxal_tts:ach_female_8": {
+    "reference_audio": "speaker_references/crestai_waxal_tts_ach_female_8.wav",
+    "reference_text": "Piny tin obiloke aloka, ma kadi bed kot tye ka cwer i cawa-ni, ceng obiryeny matek i ngeye.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0076.wav"
+  },
+  "crestai_waxal_tts:twi_female_2": {
+    "reference_audio": "speaker_references/crestai_waxal_tts_twi_female_2.wav",
+    "reference_text": "Nsrahwɛbea [1] baako a obiara pɛ sɛ ɔkɔ hɔ ne Asenmanso nkoatɔnbea. Sɛ wokɔ hɔ a wode w’ani bɛhunu sikakɔkɔɔ kann.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0077.wav"
+  },
+  "crestai_pidjin_tts:pcm_male_4": {
+    "reference_audio": "speaker_references/crestai_pidjin_tts_pcm_male_4.wav",
+    "reference_text": "for di same meetin di honourable minister with di with me conclude say me as ambassador of thailand to nigeria go dey work closely with di ministry of agriculture and rural development to establish platform",
+    "source_path": "/workspace/audio8_salt/audio/reference_0078.wav"
+  },
+  "crestai_pidjin_tts:pcm_male_1": {
+    "reference_audio": "speaker_references/crestai_pidjin_tts_pcm_male_1.wav",
+    "reference_text": "tori bin com out too say di former air chief marshal",
+    "source_path": "/workspace/audio8_salt/audio/reference_0079.wav"
+  },
+  "crestai_waxal_tts:ach_male_3": {
+    "reference_audio": "speaker_references/crestai_waxal_tts_ach_male_3.wav",
+    "reference_text": "Ature ma kipito i koc ka kicibo i wang dirija ma ki yabo nucu. Wang ot ma katen-ne kiwalo odok tenge ki tenge.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0080.wav"
+  },
+  "crestai_waxal_tts:ach_male_5": {
+    "reference_audio": "speaker_references/crestai_waxal_tts_ach_male_5.wav",
+    "reference_text": "Bok ma kicibo i kin jami ma rangi-gi kiwero mapat-pat. Bok aryo ma kwar kicibogi i wi wadi. Bok ma rangi-ne ocwak-ocwak kicibo bok adek i wiye.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0081.wav"
+  },
+  "phosai_cameroon_pidjin_cv_wes_tts:wes_female_103": {
+    "reference_audio": "speaker_references/phosai_cameroon_pidjin_cv_wes_tts_wes_female_103.wav",
+    "reference_text": "You no go jus believe.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0082.wav"
+  },
+  "crestai_waxal_tts:lug_female_8": {
+    "reference_audio": "speaker_references/crestai_waxal_tts_lug_female_8.wav",
+    "reference_text": "Akabinika ak’ebbumba aka langi enjeru n’enzirugavu emabega waako kaliko omukonda omuntu gw’akwata okukasitula. Mu maaso gaako kaliko omumwa omuyita caayi. Akabinika kano waggulu kalina ekisaanikira era nga nakyo kiriko akakwatibwako.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0083.wav"
+  },
+  "crestai_waxal_tts:lug_male_2": {
+    "reference_audio": "speaker_references/crestai_waxal_tts_lug_male_2.wav",
+    "reference_text": "Obukupa nabwo bwefaanaanyiriza amayuuni lwakuba bwo buba butonoko mu kikula era bukalubamu ne bwe buba bufumbiddwa okusinga amayuuni ga bwayiise.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0084.wav"
+  },
+  "crestai_waxal_tts:kik_female_4": {
+    "reference_audio": "speaker_references/crestai_waxal_tts_kik_female_4.wav",
+    "reference_text": "July niguo heho itanyitwo gukorwo iri nyingi .",
+    "source_path": "/workspace/audio8_salt/audio/reference_0085.wav"
+  },
+  "crestai_pidjin_tts:pcm_male_2": {
+    "reference_audio": "speaker_references/crestai_pidjin_tts_pcm_male_2.wav",
+    "reference_text": "di bus drivers plus conductors dey accuse police say na dem beat one of dia",
+    "source_path": "/workspace/audio8_salt/audio/reference_0086.wav"
+  },
+  "crestai_waxal_tts:kik_female_2": {
+    "reference_audio": "speaker_references/crestai_waxal_tts_kik_female_2.wav",
+    "reference_text": "Mūthokoi nì mbembe ngonyore na ūrìagwo mūno Ikambainì.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0087.wav"
+  },
+  "crestai_waxal_tts:swa_female_5": {
+    "reference_audio": "speaker_references/crestai_waxal_tts_swa_female_5.wav",
+    "reference_text": "Mashindano ya michezo yatafanyika ijumaa.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0088.wav"
+  },
+  "crestai_waxal_tts:ibo_male_6": {
+    "reference_audio": "speaker_references/crestai_waxal_tts_ibo_male_6.wav",
+    "reference_text": "Chinyere gbasara nchanwụ ya n'ezi ka ọ kọọ mmiri. Nchanwụ ahụ nwere agba mme mme, agba anụnụ anụnụ, agba ọcha nakwa agba akwụkwọ ndụ akwụkwọ ndụ.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0089.wav"
+  },
+  "crestai_waxal_tts:yor_female_3": {
+    "reference_audio": "speaker_references/crestai_waxal_tts_yor_female_3.wav",
+    "reference_text": "Bọọlù aláfẹsẹ gbá wà ní inú àwọn (nẹẹtì) Àwọ résurésu (bul wà n",
+    "source_path": "/workspace/audio8_salt/audio/reference_0090.wav"
+  },
+  "crestai_waxal_tts:swa_female_1": {
+    "reference_audio": "speaker_references/crestai_waxal_tts_swa_female_1.wav",
+    "reference_text": "Moja ya nne ya ishirini ni tano,au robo ya ishirini ni tano.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0091.wav"
+  },
+  "crestai_waxal_tts:nyn_male_7": {
+    "reference_audio": "speaker_references/crestai_waxal_tts_nyn_male_7.wav",
+    "reference_text": "Kato akaba ow’okubanza kandi akakora ekyizaamu kimwe.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0092.wav"
+  },
+  "crestai_waxal_tts:ach_female_7": {
+    "reference_audio": "speaker_references/crestai_waxal_tts_ach_female_7.wav",
+    "reference_text": "Anga ma orii loyo ibedo ladit lobo me Uganda? Yoweri Kaguta Museveni aye obedo ladit lobo ma orii loyo iwi kom tela me lobo Uganda.",
+    "source_path": "/workspace/audio8_salt/audio/reference_0093.wav"
+  }
+}

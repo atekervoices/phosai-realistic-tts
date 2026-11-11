@@ -1,0 +1,68 @@
+[package]
+name = "audio8-tts-rs"
+version = "0.1.0"
+edition = "2021"
+authors = ["PhosAI <info@phosai.com>"]
+description = "Low-latency Rust ONNX Runtime (GPU/CPU) & SGLang-Omni TTS inference server for Audio8-TTS (phosai/realistic-air-v1)"
+autoexamples = false
+
+[[bin]]
+name = "server"
+path = "examples/server.rs"
+
+[dependencies]
+# ONNX Runtime with GPU (CUDA / TensorRT / DirectML) & CPU execution providers
+ort = { version = "=2.0.0-rc.14", default-features = false, features = [
+    "std",
+    "ndarray",
+    "tracing",
+    "api-31",
+    "cuda",
+    "tensorrt",
+    "directml",
+    "copy-dylibs",
+] }
+ndarray = "0.17"
+
+# Text Normalizer & Tokenizer
+phosai-normalizer = { path = "./phosai-normalizer-rs" }
+tokenizers = { version = "0.23", default-features = false, features = ["onig"] }
+regex = "1.10"
+
+# Audio I/O & Signal Processing
+hound = "3.5"
+
+# Hashing, Randomness & Encoding
+sha2 = "0.10"
+hex = "0.4"
+base64 = "0.22"
+rand = "0.8"
+
+# Error Handling
+anyhow = "1.0"
+thiserror = "2.0"
+
+# Async HTTP / WebSocket Server (matching spark-tts-rs)
+tokio = { version = "1.0", features = ["full"] }
+warp = "0.3"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+bytes = "1.0"
+futures-util = "0.3"
+futures = "0.3"
+multer = "3.0"
+mime = "0.3"
+
+# HTTP Client for optional SGLang-Omni high-concurrency GPU backend
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+
+# CLI & OpenAPI Documentation
+clap = { version = "4.0", features = ["derive"] }
+utoipa = { version = "4.2", features = ["yaml"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[features]
+default = []
+download-binaries = ["ort/download-binaries", "ort/tls-native", "ort/lax-feature-matching"]
+

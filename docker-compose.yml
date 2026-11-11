@@ -1,0 +1,27 @@
+services:
+  # Self-contained, pre-baked Audio8-TTS-RS container (models + 94 speaker voices baked in at build time).
+  # Automatically detects NVIDIA GPU (CUDA/TensorRT FP32) or falls back to CPU (ONNX Runtime INT8) at startup.
+  audio8-tts-rs:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        HF_TOKEN: ${HF_TOKEN:-}
+        MODEL_ID: ${MODEL_ID:-phosai/realistic-v1}
+    container_name: audio8-tts-rs
+    restart: unless-stopped
+    ports:
+      - "${PORT:-18473}:18473"
+    environment:
+      - ARKTTS_MODEL_DIR=/app/model
+      - ARKTTS_VOICES_DIR=/app/voices
+      - ARKTTS_DEVICE=${ARKTTS_DEVICE:-auto}
+      - ARKTTS_WORKERS=${ARKTTS_WORKERS:-1}
+      - ARKTTS_THREADS=${ARKTTS_THREADS:-4}
+      - SGLANG_URL=${SGLANG_URL:-}
+      - OUTPUT_SAMPLE_RATE=${OUTPUT_SAMPLE_RATE:-16000}
+      - PORT=18473
+      # Exposes GPUs automatically on hosts with NVIDIA Container Runtime configured,
+      # while remaining 100% compatible with CPU-only machines and WSL2 without GPUs.
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
