@@ -11,17 +11,18 @@ name = "server"
 path = "examples/server.rs"
 
 [dependencies]
-# ONNX Runtime with GPU (CUDA / TensorRT / DirectML) & CPU execution providers
+# ONNX Runtime with GPU (CUDA) & CPU execution providers
 ort = { version = "=2.0.0-rc.14", default-features = false, features = [
     "std",
     "ndarray",
     "tracing",
     "api-31",
     "cuda",
-    "tensorrt",
-    "directml",
     "copy-dylibs",
 ] }
+
+[target.'cfg(windows)'.dependencies]
+ort = { version = "=2.0.0-rc.14", features = ["directml"] }
 ndarray = "0.17"
 
 # Text Normalizer & Tokenizer

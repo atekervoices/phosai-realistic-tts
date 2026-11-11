@@ -61,18 +61,47 @@ pub fn build_ort_session(
     let mut active_provider = "CPUExecutionProvider".to_string();
 
     if matches!(device, ExecutionDevice::Gpu | ExecutionDevice::Auto) {
-        let cuda_ep = ep::CUDA::default().build();
-        let dml_ep = ep::DirectML::default().build();
-        let cpu_ep = ep::CPU::default().build();
+        let mut providers = Vec::new();
+        let mut cuda_ok = false;
 
-        if ep::CUDA::is_available().unwrap_or(false) {
-            active_provider = "CUDAExecutionProvider".to_string();
-        } else if ep::DirectML::is_available().unwrap_or(false) {
-            active_provider = "DirectMLExecutionProvider".to_string();
+        // Try CUDA first if available
+        match std::panic::catch_unwind(|| ep::CUDA::is_available()) {
+            Ok(Ok(true)) => {
+                match std::panic::catch_unwind(|| ep::CUDA::default().build()) {
+                    Ok(ep) => {
+                        providers.push(ep);
+                        active_provider = "CUDAExecutionProvider".to_string();
+                        cuda_ok = true;
+                    }
+                    Err(_) => {
+                        eprintln!("[Warn] Failed to build CUDA execution provider, falling back.");
+                    }
+                }
+            }
+            _ => {}
         }
 
+        #[cfg(target_os = "windows")]
+        if !cuda_ok {
+            match std::panic::catch_unwind(|| ep::DirectML::is_available()) {
+                Ok(Ok(true)) => {
+                    match std::panic::catch_unwind(|| ep::DirectML::default().build()) {
+                        Ok(ep) => {
+                            providers.push(ep);
+                            active_provider = "DirectMLExecutionProvider".to_string();
+                        }
+                        Err(_) => {}
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // Always add CPU as final fallback provider
+        providers.push(ep::CPU::default().build());
+
         builder = builder
-            .with_execution_providers([cuda_ep, dml_ep, cpu_ep])
+            .with_execution_providers(providers)
             .unwrap_or_else(|e| {
                 active_provider = "CPUExecutionProvider".to_string();
                 e.recover()
