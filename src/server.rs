@@ -61,7 +61,7 @@ pub struct SpeechRequest {
     /// Top-k sampling (default: `30`)
     #[serde(default)]
     pub top_k: Option<usize>,
-    /// Max semantic tokens per sentence chunk (default: `120`, clamped to `256`)
+    /// Max semantic tokens per sentence chunk (default: `2048`, matching spark-tts-rs)
     #[serde(default)]
     pub max_new_tokens: Option<usize>,
     /// Random seed (default: `42`)
@@ -99,7 +99,7 @@ impl SpeechRequest {
             p.top_k = tk;
         }
         if let Some(m) = self.max_new_tokens {
-            p.max_new_tokens = m.clamp(16, 256);
+            p.max_new_tokens = m.clamp(16, 2048);
         }
         if let Some(s) = self.seed {
             p.seed = s;

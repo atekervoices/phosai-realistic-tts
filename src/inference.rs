@@ -31,7 +31,7 @@ impl Default for GenerationParams {
             temperature: 0.7,
             top_p: 0.8,
             top_k: 30,
-            max_new_tokens: 120,
+            max_new_tokens: 2048,
             seed: 42,
             speaker_tag: None,
         }

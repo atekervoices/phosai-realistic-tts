@@ -194,14 +194,18 @@ pub fn sample_logits(
 }
 
 /// Detect cyclical token repetition at the tail of `history` (periods 1..=12),
-/// borrowed from `spark-tts-rs` (`check_token_repetition`).
+/// matching `spark-tts-rs` (`check_token_repetition`). Ignores first 40 frames (~1.8s)
+/// so initial acoustic pause/lead-in is never falsely flagged as a loop.
 pub fn check_semantic_repetition(history: &[i64]) -> bool {
     let len = history.len();
+    if len < 40 {
+        return false;
+    }
     for n in 1..=12 {
         let min_repeats = if n == 1 {
-            8
+            16
         } else if n <= 3 {
-            5
+            6
         } else {
             4
         };
