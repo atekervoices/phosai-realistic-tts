@@ -16,12 +16,12 @@ fi
 
 if [ "${HAS_GPU}" -eq 1 ]; then
     DETECTED_MODE="GPU (NVIDIA CUDA / TensorRT - FP32)"
-    export ARKTTS_DEVICE="gpu"
+    export ARKTTS_DEVICE="${ARKTTS_DEVICE:-gpu}"
     export ARKTTS_PRECISION="${ARKTTS_PRECISION:-fp32}"
-    export ARKTTS_WORKERS="${ARKTTS_WORKERS:-2}"
+    export ARKTTS_WORKERS="${ARKTTS_WORKERS:-1}"
 else
     DETECTED_MODE="CPU (ONNX Runtime Multi-Thread - INT8/FP32)"
-    export ARKTTS_DEVICE="cpu"
+    export ARKTTS_DEVICE="${ARKTTS_DEVICE:-cpu}"
     export ARKTTS_PRECISION="${ARKTTS_PRECISION:-fp32}"
     export ARKTTS_WORKERS="${ARKTTS_WORKERS:-1}"
 fi
