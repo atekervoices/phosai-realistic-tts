@@ -640,7 +640,7 @@ class CodecEncoderOnnxWrapper(nn.Module):
 
 def get_persistent_cache_dir(fingerprint: str) -> Path:
     hf_home = Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface"))
-    cache_dir = hf_home / f"audio8_build_cache_{fingerprint}_v3"
+    cache_dir = hf_home / f"audio8_build_cache_{fingerprint}_v5"
     cache_dir.mkdir(parents=True, exist_ok=True)
     return cache_dir
 
@@ -968,20 +968,29 @@ def run_stage_slow_ar(src_path: Path, out_dir: Path, model_id: str = DEFAULT_MOD
     cached_slow = model_cache_dir / "slow_ar_fp32.onnx"
     slow_onnx_path = out_dir / "slow_ar_fp32.onnx"
 
-    hf_home = Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface"))
-    if not cached_slow.is_file():
-        for prev_cache in [
-            hf_home / f"audio8_build_cache_{fingerprint}_v2" / "model" / "slow_ar_fp32.onnx",
-            hf_home / f"audio8_build_cache_{fingerprint}" / "model" / "slow_ar_fp32.onnx",
-        ]:
-            if prev_cache.is_file():
-                shutil.copy2(prev_cache, cached_slow)
-                break
+    def copy_model_artifacts(src_d: Path, dst_d: Path, prefix: str) -> None:
+        dst_d.mkdir(parents=True, exist_ok=True)
+        for p in src_d.iterdir():
+            if p.is_file() and (p.name.startswith(prefix) or p.name.endswith(".weight") or p.name.endswith(".data")):
+                shutil.copy2(p, dst_d / p.name)
 
-    if cached_slow.is_file():
-        print(f"Restoring {slow_onnx_path.name} from BuildKit persistent cache...")
-        shutil.copy2(cached_slow, slow_onnx_path)
-        return
+    def is_onnx_loadable(onnx_file: Path) -> bool:
+        if not onnx_file.is_file():
+            return False
+        try:
+            import onnxruntime as ort
+            _sess = ort.InferenceSession(str(onnx_file), providers=["CPUExecutionProvider"])
+            return True
+        except Exception as exc:
+            print(f"[Warn] ONNX session verification failed for {onnx_file.name}: {exc}")
+            return False
+
+    if cached_slow.is_file() and is_onnx_loadable(cached_slow):
+        print(f"Restoring {slow_onnx_path.name} & weights from BuildKit persistent cache...")
+        copy_model_artifacts(model_cache_dir, out_dir, "slow_ar_fp32")
+        if is_onnx_loadable(slow_onnx_path):
+            return
+        print("[Warn] Restored slow AR ONNX failed validation in target dir; re-exporting...")
 
     model = AutoModel.from_pretrained(
         str(src_path),
@@ -1052,9 +1061,12 @@ def run_stage_slow_ar(src_path: Path, out_dir: Path, model_id: str = DEFAULT_MOD
             opset_version=18,
             do_constant_folding=True,
         )
-        shutil.copy2(slow_onnx_path, cached_slow)
+        copy_model_artifacts(out_dir, model_cache_dir, "slow_ar_fp32")
     finally:
         os.chdir(prev_cwd)
+
+    if not is_onnx_loadable(slow_onnx_path):
+        raise RuntimeError(f"Exported Slow AR model at {slow_onnx_path} failed ONNX Runtime verification.")
 
 
 def run_stage_quantize(src_path: Path, out_dir: Path, model_id: str, precision: str) -> None:
