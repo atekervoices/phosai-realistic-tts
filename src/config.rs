@@ -186,10 +186,10 @@ fn default_max_seq_len() -> usize {
     2048
 }
 fn default_semantic_begin_id() -> i64 {
-    151665
+    151678
 }
 fn default_semantic_end_id() -> i64 {
-    155760
+    155773
 }
 fn default_im_end_id() -> i64 {
     151645

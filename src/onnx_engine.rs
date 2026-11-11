@@ -650,6 +650,8 @@ impl Audio8OnnxEngine {
         &self,
         logits: &[f32],
         previous: &[i64],
+        step: usize,
+        min_frames: usize,
         temperature: f32,
         top_p: f32,
         top_k: usize,
@@ -685,7 +687,8 @@ impl Audio8OnnxEngine {
         let eos_first = self.manifest.slow_logits_layout == "eos_then_relative_semantic";
         let eos_index = if eos_first { 0 } else { expected - 1 };
 
-        if previous.is_empty() && eos_index < values.len() {
+        // Mask EOS on the initial frames to prevent early empty silence terminations
+        if (step < min_frames || previous.is_empty()) && eos_index < values.len() {
             values[eos_index] = f32::NEG_INFINITY;
         }
 
@@ -795,7 +798,7 @@ impl Audio8OnnxEngine {
             }
 
             let semantic =
-                self.sample_semantic(&logits, &ras_window, temperature, top_p, top_k, &mut rng)?;
+                self.sample_semantic(&logits, &ras_window, step, 16, temperature, top_p, top_k, &mut rng)?;
             if semantic == stop {
                 break;
             }
