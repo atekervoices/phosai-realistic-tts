@@ -3,13 +3,14 @@ FROM hongccc/sglang-omni:dev
 
 WORKDIR /opt
 
-# 1. Ensure git & curl are present, install pinned sglang-omni revision, and upgrade huggingface_hub
+# 1. Install git, curl, sglang-omni pinned revision, and align huggingface-hub with transformers
 RUN apt-get update && apt-get install -y --no-install-recommends git curl ca-certificates && rm -rf /var/lib/apt/lists/* && \
     git clone https://github.com/sgl-project/sglang-omni.git /opt/sglang-omni && \
     cd /opt/sglang-omni && \
     git checkout 68a572348837f7b004857b4b07993c20ade4c017 && \
     python3 -m pip install --no-cache-dir -e /opt/sglang-omni && \
-    python3 -m pip install --no-cache-dir --upgrade huggingface_hub
+    python3 -m pip uninstall -y kernels || true && \
+    python3 -m pip install --no-cache-dir "huggingface-hub>=0.34.0,<1.0"
 
 # 2. Copy and install Audio8 adapter
 COPY sglang_omni /opt/audio8-adapter
