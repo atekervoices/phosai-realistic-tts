@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends git curl ca-cer
     cd /opt/sglang-omni && \
     git checkout 68a572348837f7b004857b4b07993c20ade4c017 && \
     python3 -m pip install --no-cache-dir -e /opt/sglang-omni && \
-    python3 -m pip uninstall -y kernels || true && \
+    python3 -m pip uninstall -y kernels flashinfer-jit-cache || true && \
     python3 -m pip install --no-cache-dir "huggingface-hub>=0.34.0,<1.0"
 
 # 2. Copy and install Audio8 adapter
