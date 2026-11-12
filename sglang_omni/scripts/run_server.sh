@@ -31,6 +31,7 @@ if [[ -n "${SGLANG_OMNI_SITE_PACKAGES:-}" ]]; then
 fi
 
 export FLASHINFER_WORKSPACE_BASE="${FLASHINFER_WORKSPACE_BASE:-/tmp/audio8-flashinfer}"
+export FLASHINFER_DISABLE_VERSION_CHECK="${FLASHINFER_DISABLE_VERSION_CHECK:-1}"
 
 # Auto-download Hugging Face snapshot if not already present on disk
 TARGET_DIR="/models/$(echo "${MODEL}" | tr '/' '_')"
