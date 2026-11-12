@@ -32,6 +32,15 @@ fi
 
 export FLASHINFER_WORKSPACE_BASE="${FLASHINFER_WORKSPACE_BASE:-/tmp/audio8-flashinfer}"
 
+# Auto-download Hugging Face snapshot if not already present on disk
+if [[ ! -f "${MODEL}/config.json" ]]; then
+  echo "📥 Snapshot '${MODEL}' not found locally. Downloading from HuggingFace..."
+  TARGET_DIR="/models/$(echo "${MODEL}" | tr '/' '_')"
+  mkdir -p "${TARGET_DIR}"
+  "${PYTHON_BIN}" -c "import os; from huggingface_hub import snapshot_download; snapshot_download(repo_id='${MODEL}', local_dir='${TARGET_DIR}', token=os.environ.get('HF_TOKEN') or None)"
+  MODEL="${TARGET_DIR}"
+fi
+
 exec "${PYTHON_BIN}" -m sglang_omni.cli.cli serve \
   --model-path "${MODEL}" \
   --config "${CONFIG}" \

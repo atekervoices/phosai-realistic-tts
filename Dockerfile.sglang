@@ -3,14 +3,22 @@ FROM hongccc/sglang-omni:dev
 
 WORKDIR /opt
 
-# Copy and install Audio8 adapter
+# 1. Ensure git & curl are present and install pinned sglang-omni revision
+RUN apt-get update && apt-get install -y --no-install-recommends git curl ca-certificates && rm -rf /var/lib/apt/lists/* && \
+    git clone https://github.com/sgl-project/sglang-omni.git /opt/sglang-omni && \
+    cd /opt/sglang-omni && \
+    git checkout 68a572348837f7b004857b4b07993c20ade4c017 && \
+    python3 -m pip install --no-cache-dir -e /opt/sglang-omni
+
+# 2. Copy and install Audio8 adapter
 COPY sglang_omni /opt/audio8-adapter
 
 RUN SGLANG_OMNI_PACKAGE="$(python3 -c 'import importlib.util, pathlib; s=importlib.util.find_spec("sglang_omni"); assert s and s.origin; print(pathlib.Path(s.origin).parent)')" && \
     /opt/audio8-adapter/scripts/install_adapter.sh "${SGLANG_OMNI_PACKAGE}" && \
     python3 /opt/audio8-adapter/scripts/verify_install.py
 
-ENV AUDIO8_TTS_STREAM_ENABLED=1 \
+ENV SGLANG_OMNI_ROOT=/opt/sglang-omni \
+    AUDIO8_TTS_STREAM_ENABLED=1 \
     AUDIO8_TTS_ATTENTION_BACKEND=flashinfer \
     AUDIO8_TTS_MEM_FRACTION_STATIC=0.25 \
     AUDIO8_TTS_MAX_RUNNING_REQUESTS=32 \
@@ -22,4 +30,3 @@ ENV AUDIO8_TTS_STREAM_ENABLED=1 \
 EXPOSE 8010
 
 ENTRYPOINT ["/bin/bash", "/opt/audio8-adapter/scripts/run_server.sh"]
-
