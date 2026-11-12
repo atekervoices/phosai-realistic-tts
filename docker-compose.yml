@@ -13,11 +13,16 @@ services:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
       - MODEL=${MODEL:-phosai/realistic-v1}
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN:-}
       - AUDIO8_TTS_STREAM_ENABLED=1
       - AUDIO8_TTS_ATTENTION_BACKEND=flashinfer
       - AUDIO8_TTS_MEM_FRACTION_STATIC=0.25
       - PORT=8010
       - HOST=0.0.0.0
+    volumes:
+      - ~/.cache/huggingface:/root/.cache/huggingface
+      - ./models:/models
     deploy:
       resources:
         reservations:

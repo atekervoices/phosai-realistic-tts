@@ -33,11 +33,39 @@ fi
 export FLASHINFER_WORKSPACE_BASE="${FLASHINFER_WORKSPACE_BASE:-/tmp/audio8-flashinfer}"
 
 # Auto-download Hugging Face snapshot if not already present on disk
-if [[ ! -f "${MODEL}/config.json" ]]; then
+TARGET_DIR="/models/$(echo "${MODEL}" | tr '/' '_')"
+
+if [[ -f "${MODEL}/config.json" ]]; then
+  echo "✅ Found model config at ${MODEL}/config.json"
+elif [[ -f "${TARGET_DIR}/config.json" ]]; then
+  echo "✅ Found cached model snapshot in ${TARGET_DIR}"
+  MODEL="${TARGET_DIR}"
+else
   echo "📥 Snapshot '${MODEL}' not found locally. Downloading from HuggingFace..."
-  TARGET_DIR="/models/$(echo "${MODEL}" | tr '/' '_')"
   mkdir -p "${TARGET_DIR}"
-  "${PYTHON_BIN}" -c "import os; from huggingface_hub import snapshot_download; snapshot_download(repo_id='${MODEL}', local_dir='${TARGET_DIR}', token=os.environ.get('HF_TOKEN') or None)"
+  "${PYTHON_BIN}" -c "
+import os, sys
+from huggingface_hub import snapshot_download
+
+model_id = '${MODEL}'
+target_dir = '${TARGET_DIR}'
+token = os.environ.get('HF_TOKEN') or os.environ.get('HUGGING_FACE_HUB_TOKEN') or None
+is_authed = bool(token and token.strip())
+print(f'Starting snapshot download for {model_id} (authenticated: {is_authed})...')
+
+try:
+    snapshot_download(repo_id=model_id, local_dir=target_dir, token=token if is_authed else None)
+    print(f'✅ Successfully downloaded {model_id} to {target_dir}')
+except Exception as e:
+    print(f'❌ Download failed for {model_id}: {e}', file=sys.stderr)
+    if '401' in str(e) or 'Unauthorized' in str(e):
+        print('\n[CRITICAL] 401 Unauthorized: The repository is private or gated.', file=sys.stderr)
+        print('Please supply your Hugging Face token via one of:', file=sys.stderr)
+        print('  1. Add HF_TOKEN=hf_... to ~/phosai-realistic-tts/.env', file=sys.stderr)
+        print('  2. export HF_TOKEN=hf_... in your shell before running docker compose up', file=sys.stderr)
+        print('  3. Or run huggingface-cli login on the host with ~/.cache/huggingface mounted.\n', file=sys.stderr)
+    sys.exit(1)
+"
   MODEL="${TARGET_DIR}"
 fi
 
