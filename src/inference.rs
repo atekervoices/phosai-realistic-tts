@@ -264,12 +264,9 @@ impl TtsEngine {
         params: GenerationParams,
     ) -> Result<Vec<f32>> {
         if let Some(ref sglang_url) = self.config.sglang_url {
-            if let Ok(samples) = self
+            return self
                 .synthesize_via_sglang(sglang_url, text, voice_name, &params)
-                .await
-            {
-                return Ok(samples);
-            }
+                .await;
         }
 
         let mut all_samples = Vec::new();
@@ -281,7 +278,7 @@ impl TtsEngine {
     }
 
     /// Stream synthesized audio chunks (`f32` samples at `output_sample_rate`) sentence-by-sentence
-    /// and window-by-window via `ProgressiveAudio8Streamer` or SGLang continuous batching GPU backend.
+    /// and window-by-window via SGLang continuous batching GPU backend (Step 2 architecture).
     pub fn synthesize_streaming<F>(
         &self,
         text: &str,
@@ -293,24 +290,16 @@ impl TtsEngine {
     where
         F: FnMut(Vec<f32>) -> Result<bool>,
     {
-        // 1. Step 2 Architecture: Stream directly from SGLang-Omni continuous batching GPU backend
+        // Step 2 Architecture: Stream directly from SGLang-Omni continuous batching GPU backend
         if let Some(ref sglang_url) = self.config.sglang_url {
-            match self.synthesize_streaming_via_sglang(
+            return self.synthesize_streaming_via_sglang(
                 sglang_url,
                 text,
                 voice_name,
                 &params,
-                abort_flag.clone(),
-                &mut on_audio_chunk,
-            ) {
-                Ok(()) => return Ok(()),
-                Err(e) => {
-                    eprintln!(
-                        "⚠️ SGLang streaming backend error at {} (falling back to ONNX): {}",
-                        sglang_url, e
-                    );
-                }
-            }
+                abort_flag,
+                on_audio_chunk,
+            );
         }
 
         let profile = self.resolve_voice_profile(voice_name)?;
@@ -424,26 +413,18 @@ impl TtsEngine {
     where
         F: FnMut(Vec<f32>) -> Result<bool>,
     {
-        // 1. Step 2 Architecture: Stream directly from SGLang-Omni backend
+        // Step 2 Architecture: Stream directly from SGLang-Omni backend
         if let Some(ref sglang_url) = self.config.sglang_url {
-            match self.synthesize_cloned_bytes_via_sglang(
+            return self.synthesize_cloned_bytes_via_sglang(
                 sglang_url,
                 text,
                 wav_bytes,
                 reference_text,
                 language,
                 &params,
-                abort_flag.clone(),
-                &mut on_audio_chunk,
-            ) {
-                Ok(()) => return Ok(()),
-                Err(e) => {
-                    eprintln!(
-                        "⚠️ SGLang cloned streaming error at {} (falling back to ONNX): {}",
-                        sglang_url, e
-                    );
-                }
-            }
+                abort_flag,
+                on_audio_chunk,
+            );
         }
 
         let sentences = self.tokenizer.normalize_and_split(text, language);

@@ -369,10 +369,9 @@ pub fn build_routes(
         });
 
     // WebSocket routes:
-    // - /v1/audio/speech/stream/ws (spark-tts-rs primary WS route)
-    // - /v1/audio/speech/clone/ws  (spark-tts-rs WS voice cloning route)
+    // - /v1/audio/speech/stream/ws (primary WS streaming route matching spark-tts-rs)
+    // - /v1/audio/speech/clone/ws  (WS voice cloning route matching spark-tts-rs)
     // - /v1/audio/speech/ws
-    // - /ws/tts
     let eng_ws_stream = engine.clone();
     let ws_stream_route = warp::path!("v1" / "audio" / "speech" / "stream" / "ws")
         .and(warp::ws())
@@ -386,14 +385,6 @@ pub fn build_routes(
         .and(warp::ws())
         .map(move |ws: warp::ws::Ws| {
             let eng = eng_ws_clone.clone();
-            ws.on_upgrade(move |socket| handle_ws_client(socket, eng))
-        });
-
-    let eng_ws1 = engine.clone();
-    let ws_tts_route = warp::path!("ws" / "tts")
-        .and(warp::ws())
-        .map(move |ws: warp::ws::Ws| {
-            let eng = eng_ws1.clone();
             ws.on_upgrade(move |socket| handle_ws_client(socket, eng))
         });
 
@@ -416,7 +407,6 @@ pub fn build_routes(
         .or(ws_stream_route)
         .or(ws_clone_route)
         .or(ws_v1_route)
-        .or(ws_tts_route)
         .or(speech_stream_route)
         .or(speech_v1)
         .or(tts_alias)
@@ -431,7 +421,6 @@ pub async fn run_server(engine: Arc<TtsEngine>, addr: std::net::SocketAddr) {
     println!("  HTTP Speech     : POST http://{}/v1/audio/speech", addr);
     println!("  HTTP Stream     : POST http://{}/v1/audio/speech/stream", addr);
     println!("  WebSocket Stream: ws://{}/v1/audio/speech/stream/ws", addr);
-    println!("  LiveKit WS      : ws://{}/ws/tts", addr);
     println!("============================================================");
     let routes = build_routes(engine);
     warp::serve(routes).run(addr).await;

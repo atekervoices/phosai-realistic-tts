@@ -115,6 +115,27 @@ async fn main() -> Result<()> {
     }
     println!("============================================================");
 
+    if let Some(ref url) = sglang_url {
+        println!("⏳ Waiting for SGLang GPU backend at {} to be ready...", url);
+        let client = reqwest::Client::new();
+        let health_url = format!("{}/health", url.trim_end_matches('/'));
+        let start = std::time::Instant::now();
+        let mut ready = false;
+        while start.elapsed() < std::time::Duration::from_secs(120) {
+            if let Ok(resp) = client.get(&health_url).send().await {
+                if resp.status().is_success() {
+                    println!("✅ SGLang GPU backend is ready and responding at {}!", url);
+                    ready = true;
+                    break;
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
+        if !ready {
+            println!("⚠️ Warning: SGLang backend at {} did not respond to /health within 120s; starting anyway.", url);
+        }
+    }
+
     let engine = Arc::new(Audio8InferenceEngine::from_cli(
         &model_dir,
         &base_dir,

@@ -22,7 +22,6 @@ The engine runs directly on **ONNX Runtime (`ort`)** across both **NVIDIA GPU** 
   - **OpenAI Audio API**: `POST /v1/audio/speech`
   - **Chunked PCM Streaming**: `POST /v1/audio/speech/stream`
   - **Bi-directional WebSockets**: `GET /v1/audio/speech/stream/ws`
-  - **LiveKit Agent Protocol**: `GET /ws/tts` (drop-in replacement for LiveKit `sparktts.py` plugins)
   - **Zero-Shot Voice Cloning**: `POST /v1/audio/speech/clone/upload` and `GET /v1/audio/speech/clone/ws`
   - **Interactive Swagger UI**: `GET /docs` and `GET /openapi.json`
 - **Configurable Output Sample Rate**:
@@ -170,21 +169,17 @@ cargo run --release --features download-binaries --bin server -- \
 
 ---
 
-## LiveKit Agent Integration
+## Streaming WebSocket Integration
 
-To connect with LiveKit Python Agents using `sparktts.py`:
-```python
-from livekit.plugins import sparktts
-
-# Point sparktts client to this service
-tts = sparktts.TTS(
-    base_url="http://localhost:18473",
-    voice="crestai_vo_tts:lug_female_10",
-    sample_rate=16000,
-)
+Connect directly via WebSocket on `ws://localhost:18473/v1/audio/speech/stream/ws`:
+```json
+{
+  "text": "Mu kubalukawo kw'akawuka ka sennyiga kolona abantu baatandika okukola masiki mu ngoye.",
+  "voice": "crestai_vo_tts:lug_female_10",
+  "max_new_tokens": 2048
+}
 ```
-
-The service exposes the native WebSocket handler on `ws://localhost:18473/ws/tts`, streaming real-time PCM audio directly to LiveKit rooms.
+The server immediately begins yielding binary 16kHz PCM audio frames with sub-second TTFA (<600 ms).
 
 ---
 
