@@ -281,7 +281,7 @@ impl TtsEngine {
     }
 
     /// Stream synthesized audio chunks (`f32` samples at `output_sample_rate`) sentence-by-sentence
-    /// and window-by-window via `ProgressiveAudio8Streamer`.
+    /// and window-by-window via `ProgressiveAudio8Streamer` or SGLang continuous batching GPU backend.
     pub fn synthesize_streaming<F>(
         &self,
         text: &str,
@@ -293,6 +293,26 @@ impl TtsEngine {
     where
         F: FnMut(Vec<f32>) -> Result<bool>,
     {
+        // 1. Step 2 Architecture: Stream directly from SGLang-Omni continuous batching GPU backend
+        if let Some(ref sglang_url) = self.config.sglang_url {
+            match self.synthesize_streaming_via_sglang(
+                sglang_url,
+                text,
+                voice_name,
+                &params,
+                abort_flag.clone(),
+                &mut on_audio_chunk,
+            ) {
+                Ok(()) => return Ok(()),
+                Err(e) => {
+                    eprintln!(
+                        "⚠️ SGLang streaming backend error at {} (falling back to ONNX): {}",
+                        sglang_url, e
+                    );
+                }
+            }
+        }
+
         let profile = self.resolve_voice_profile(voice_name)?;
         let lang_hint = profile
             .as_ref()
@@ -404,6 +424,28 @@ impl TtsEngine {
     where
         F: FnMut(Vec<f32>) -> Result<bool>,
     {
+        // 1. Step 2 Architecture: Stream directly from SGLang-Omni backend
+        if let Some(ref sglang_url) = self.config.sglang_url {
+            match self.synthesize_cloned_bytes_via_sglang(
+                sglang_url,
+                text,
+                wav_bytes,
+                reference_text,
+                language,
+                &params,
+                abort_flag.clone(),
+                &mut on_audio_chunk,
+            ) {
+                Ok(()) => return Ok(()),
+                Err(e) => {
+                    eprintln!(
+                        "⚠️ SGLang cloned streaming error at {} (falling back to ONNX): {}",
+                        sglang_url, e
+                    );
+                }
+            }
+        }
+
         let sentences = self.tokenizer.normalize_and_split(text, language);
         if sentences.is_empty() {
             return Ok(());
@@ -568,4 +610,263 @@ impl TtsEngine {
         let wav_bytes = resp.bytes().await?;
         audio::decode_wav_bytes_resampled(&wav_bytes, self.config.output_sample_rate)
     }
+
+    fn synthesize_streaming_via_sglang<F>(
+        &self,
+        sglang_url: &str,
+        text: &str,
+        voice_name: Option<&str>,
+        params: &GenerationParams,
+        abort_flag: Option<Arc<AtomicBool>>,
+        mut on_audio_chunk: F,
+    ) -> Result<()>
+    where
+        F: FnMut(Vec<f32>) -> Result<bool>,
+    {
+        let profile = self.resolve_voice_profile(voice_name)?;
+        let lang_hint = profile.as_ref().map(|p| p.name.as_str()).or(voice_name);
+        let sentences = self.tokenizer.normalize_and_split(text, lang_hint);
+        if sentences.is_empty() {
+            return Ok(());
+        }
+
+        let out_sr = self.config.output_sample_rate;
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(120))
+            .build()?;
+
+        for sentence in &sentences {
+            if let Some(ref flag) = abort_flag {
+                if flag.load(Ordering::Relaxed) {
+                    break;
+                }
+            }
+
+            let mut references = Vec::new();
+            if let Some(ref prof) = profile {
+                let mut ref_map = serde_json::Map::new();
+                if !prof.reference_text.is_empty() {
+                    ref_map.insert("text".to_string(), serde_json::Value::String(prof.reference_text.clone()));
+                }
+                if let Some(ref codes) = prof.vq_codes {
+                    ref_map.insert("vq_codes".to_string(), serde_json::to_value(codes)?);
+                } else if let Some(ref path) = prof.audio_path {
+                    ref_map.insert("audio_path".to_string(), serde_json::Value::String(path.to_string_lossy().to_string()));
+                }
+                if !ref_map.is_empty() {
+                    references.push(serde_json::Value::Object(ref_map));
+                }
+            }
+
+            let mut body_map = serde_json::Map::new();
+            body_map.insert("model".to_string(), serde_json::Value::String("audio8/tts-0.6b".to_string()));
+            body_map.insert("input".to_string(), serde_json::Value::String(sentence.clone()));
+            body_map.insert("text".to_string(), serde_json::Value::String(sentence.clone()));
+            body_map.insert("response_format".to_string(), serde_json::Value::String("pcm".to_string()));
+            body_map.insert("stream".to_string(), serde_json::Value::Bool(true));
+            body_map.insert("max_new_tokens".to_string(), serde_json::json!(params.max_new_tokens));
+            body_map.insert("temperature".to_string(), serde_json::json!(params.temperature));
+            body_map.insert("top_p".to_string(), serde_json::json!(params.top_p));
+            body_map.insert("top_k".to_string(), serde_json::json!(params.top_k));
+            body_map.insert("seed".to_string(), serde_json::json!(params.seed));
+
+            if !references.is_empty() {
+                body_map.insert("references".to_string(), serde_json::Value::Array(references));
+            }
+
+            let url = format!("{}/v1/audio/speech", sglang_url.trim_end_matches('/'));
+            let resp = client
+                .post(&url)
+                .json(&serde_json::Value::Object(body_map))
+                .send()
+                .with_context(|| format!("Failed to connect to SGLang backend at {}", url))?;
+
+            if !resp.status().is_success() {
+                let status = resp.status();
+                let txt = resp.text().unwrap_or_default();
+                anyhow::bail!("SGLang backend returned status {}: {}", status, txt);
+            }
+
+            use std::io::BufRead;
+            let mut reader = std::io::BufReader::new(resp);
+            let mut line = String::new();
+
+            loop {
+                if let Some(ref flag) = abort_flag {
+                    if flag.load(Ordering::Relaxed) {
+                        break;
+                    }
+                }
+
+                line.clear();
+                let bytes_read = reader.read_line(&mut line)?;
+                if bytes_read == 0 {
+                    break;
+                }
+
+                let trimmed = line.trim();
+                if !trimmed.starts_with("data: ") {
+                    continue;
+                }
+                let data = &trimmed[6..];
+                if data == "[DONE]" {
+                    break;
+                }
+
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(data) {
+                    if let Some(audio_obj) = val.get("audio") {
+                        let sample_rate = audio_obj
+                            .get("sample_rate")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(44100) as u32;
+                        if let Some(b64_str) = audio_obj.get("data").and_then(|v| v.as_str()) {
+                            use base64::Engine;
+                            if let Ok(pcm_bytes) = base64::engine::general_purpose::STANDARD.decode(b64_str) {
+                                let samples_native = audio::pcm16le_bytes_to_samples(&pcm_bytes);
+                                let out_samples = if out_sr != sample_rate {
+                                    audio::resample_lanczos(&samples_native, sample_rate, out_sr)
+                                } else {
+                                    samples_native
+                                };
+                                if !out_samples.is_empty() {
+                                    let keep_going = on_audio_chunk(out_samples)?;
+                                    if !keep_going {
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn synthesize_cloned_bytes_via_sglang<F>(
+        &self,
+        sglang_url: &str,
+        text: &str,
+        wav_bytes: &[u8],
+        reference_text: Option<&str>,
+        language: Option<&str>,
+        params: &GenerationParams,
+        abort_flag: Option<Arc<AtomicBool>>,
+        mut on_audio_chunk: F,
+    ) -> Result<()>
+    where
+        F: FnMut(Vec<f32>) -> Result<bool>,
+    {
+        use base64::Engine;
+        let b64 = base64::engine::general_purpose::STANDARD.encode(wav_bytes);
+        let data_uri = format!("data:audio/wav;base64,{}", b64);
+
+        let sentences = self.tokenizer.normalize_and_split(text, language);
+        if sentences.is_empty() {
+            return Ok(());
+        }
+
+        let out_sr = self.config.output_sample_rate;
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(120))
+            .build()?;
+
+        for sentence in &sentences {
+            if let Some(ref flag) = abort_flag {
+                if flag.load(Ordering::Relaxed) {
+                    break;
+                }
+            }
+
+            let mut ref_map = serde_json::Map::new();
+            ref_map.insert("audio_path".to_string(), serde_json::Value::String(data_uri.clone()));
+            if let Some(ref txt) = reference_text {
+                ref_map.insert("text".to_string(), serde_json::Value::String(txt.to_string()));
+            }
+            let references = vec![serde_json::Value::Object(ref_map)];
+
+            let mut body_map = serde_json::Map::new();
+            body_map.insert("model".to_string(), serde_json::Value::String("audio8/tts-0.6b".to_string()));
+            body_map.insert("input".to_string(), serde_json::Value::String(sentence.clone()));
+            body_map.insert("text".to_string(), serde_json::Value::String(sentence.clone()));
+            body_map.insert("response_format".to_string(), serde_json::Value::String("pcm".to_string()));
+            body_map.insert("stream".to_string(), serde_json::Value::Bool(true));
+            body_map.insert("max_new_tokens".to_string(), serde_json::json!(params.max_new_tokens));
+            body_map.insert("temperature".to_string(), serde_json::json!(params.temperature));
+            body_map.insert("top_p".to_string(), serde_json::json!(params.top_p));
+            body_map.insert("top_k".to_string(), serde_json::json!(params.top_k));
+            body_map.insert("seed".to_string(), serde_json::json!(params.seed));
+            body_map.insert("references".to_string(), serde_json::Value::Array(references));
+
+            let url = format!("{}/v1/audio/speech", sglang_url.trim_end_matches('/'));
+            let resp = client
+                .post(&url)
+                .json(&serde_json::Value::Object(body_map))
+                .send()
+                .with_context(|| format!("Failed to connect to SGLang backend at {}", url))?;
+
+            if !resp.status().is_success() {
+                let status = resp.status();
+                let txt = resp.text().unwrap_or_default();
+                anyhow::bail!("SGLang backend returned status {}: {}", status, txt);
+            }
+
+            use std::io::BufRead;
+            let mut reader = std::io::BufReader::new(resp);
+            let mut line = String::new();
+
+            loop {
+                if let Some(ref flag) = abort_flag {
+                    if flag.load(Ordering::Relaxed) {
+                        break;
+                    }
+                }
+
+                line.clear();
+                let bytes_read = reader.read_line(&mut line)?;
+                if bytes_read == 0 {
+                    break;
+                }
+
+                let trimmed = line.trim();
+                if !trimmed.starts_with("data: ") {
+                    continue;
+                }
+                let data = &trimmed[6..];
+                if data == "[DONE]" {
+                    break;
+                }
+
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(data) {
+                    if let Some(audio_obj) = val.get("audio") {
+                        let sample_rate = audio_obj
+                            .get("sample_rate")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(44100) as u32;
+                        if let Some(b64_str) = audio_obj.get("data").and_then(|v| v.as_str()) {
+                            use base64::Engine;
+                            if let Ok(pcm_bytes) = base64::engine::general_purpose::STANDARD.decode(b64_str) {
+                                let samples_native = audio::pcm16le_bytes_to_samples(&pcm_bytes);
+                                let out_samples = if out_sr != sample_rate {
+                                    audio::resample_lanczos(&samples_native, sample_rate, out_sr)
+                                } else {
+                                    samples_native
+                                };
+                                if !out_samples.is_empty() {
+                                    let keep_going = on_audio_chunk(out_samples)?;
+                                    if !keep_going {
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
 }

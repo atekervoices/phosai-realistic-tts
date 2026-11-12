@@ -1,0 +1,24 @@
+# SGLang-Omni High-Throughput Continuous-Batching GPU Backend for Audio8-TTS
+FROM hongccc/sglang-omni:dev
+
+WORKDIR /opt
+
+# Copy and install Audio8 adapter
+COPY sglang_omni /opt/audio8-adapter
+
+RUN SGLANG_OMNI_PACKAGE="$(python3 -c 'import importlib.util, pathlib; s=importlib.util.find_spec("sglang_omni"); assert s and s.origin; print(pathlib.Path(s.origin).parent)')" && \
+    /opt/audio8-adapter/scripts/install_adapter.sh "${SGLANG_OMNI_PACKAGE}" && \
+    python3 /opt/audio8-adapter/scripts/verify_install.py
+
+ENV AUDIO8_TTS_STREAM_ENABLED=1 \
+    AUDIO8_TTS_ATTENTION_BACKEND=flashinfer \
+    AUDIO8_TTS_MEM_FRACTION_STATIC=0.25 \
+    AUDIO8_TTS_MAX_RUNNING_REQUESTS=32 \
+    AUDIO8_TTS_DISABLE_CUDA_GRAPH=0 \
+    FLASHINFER_WORKSPACE_BASE=/tmp/audio8-flashinfer \
+    HOST=0.0.0.0 \
+    PORT=8010
+
+EXPOSE 8010
+
+ENTRYPOINT ["/bin/bash", "/opt/audio8-adapter/scripts/run_server.sh"]

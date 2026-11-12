@@ -51,8 +51,8 @@ futures = "0.3"
 multer = "3.0"
 mime = "0.3"
 
-# HTTP Client for optional SGLang-Omni high-concurrency GPU backend
-reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+# HTTP Client for SGLang-Omni high-concurrency GPU backend
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls", "blocking"] }
 
 # CLI & OpenAPI Documentation
 clap = { version = "4.0", features = ["derive"] }

@@ -1,6 +1,33 @@
 services:
-  # Self-contained, pre-baked Audio8-TTS-RS container (models + 94 speaker voices baked in at build time).
-  # Automatically detects NVIDIA GPU (CUDA/TensorRT FP32) or falls back to CPU (ONNX Runtime INT8) at startup.
+  # ── 1. SGLang-Omni High-Throughput Continuous-Batching GPU Backend ──
+  sglang-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.sglang
+    container_name: sglang-backend
+    restart: unless-stopped
+    ports:
+      - "8010:8010"
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - MODEL=${MODEL:-phosai/realistic-v1}
+      - AUDIO8_TTS_STREAM_ENABLED=1
+      - AUDIO8_TTS_ATTENTION_BACKEND=flashinfer
+      - AUDIO8_TTS_MEM_FRACTION_STATIC=0.25
+      - PORT=8010
+      - HOST=0.0.0.0
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    shm_size: '4gb'
+
+  # ── 2. Unified Rust Gateway: Streaming HTTP/WS, African Normalizer & 94 Voices ──
   audio8-tts-rs:
     build:
       context: .
@@ -12,6 +39,19 @@ services:
     restart: unless-stopped
     ports:
       - "${PORT:-18473}:18473"
+    environment:
+      - SGLANG_URL=http://sglang-backend:8010
+      - ARKTTS_MODEL_DIR=/app/model
+      - ARKTTS_VOICES_DIR=/app/voices
+      - ARKTTS_DEVICE=${ARKTTS_DEVICE:-auto}
+      - ARKTTS_WORKERS=${ARKTTS_WORKERS:-1}
+      - ARKTTS_THREADS=${ARKTTS_THREADS:-4}
+      - OUTPUT_SAMPLE_RATE=${OUTPUT_SAMPLE_RATE:-16000}
+      - PORT=18473
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    depends_on:
+      - sglang-backend
     deploy:
       resources:
         reservations:
@@ -19,16 +59,3 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
-    environment:
-      - ARKTTS_MODEL_DIR=/app/model
-      - ARKTTS_VOICES_DIR=/app/voices
-      - ARKTTS_DEVICE=${ARKTTS_DEVICE:-auto}
-      - ARKTTS_WORKERS=${ARKTTS_WORKERS:-1}
-      - ARKTTS_THREADS=${ARKTTS_THREADS:-4}
-      - SGLANG_URL=${SGLANG_URL:-}
-      - OUTPUT_SAMPLE_RATE=${OUTPUT_SAMPLE_RATE:-16000}
-      - PORT=18473
-      # Exposes GPUs automatically on hosts with NVIDIA Container Runtime configured,
-      # while remaining 100% compatible with CPU-only machines and WSL2 without GPUs.
-      - NVIDIA_VISIBLE_DEVICES=all
-      - NVIDIA_DRIVER_CAPABILITIES=compute,utility

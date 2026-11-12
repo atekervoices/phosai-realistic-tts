@@ -279,4 +279,15 @@ pub fn samples_to_pcm16le_bytes(samples: &[f32]) -> Vec<u8> {
     f32_to_pcm16_bytes(samples)
 }
 
+/// Convert 16-bit signed little-endian PCM bytes (`s16le`) to `f32` samples in `[-1.0, 1.0]`.
+pub fn pcm16le_bytes_to_samples(bytes: &[u8]) -> Vec<f32> {
+    let num_samples = bytes.len() / 2;
+    let mut samples = Vec::with_capacity(num_samples);
+    for chunk in bytes.chunks_exact(2) {
+        let pcm = i16::from_le_bytes([chunk[0], chunk[1]]);
+        samples.push(pcm as f32 / 32768.0);
+    }
+    samples
+}
+
 
