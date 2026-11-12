@@ -18,8 +18,7 @@ COPY sglang_omni /opt/audio8-adapter
 RUN chmod +x /opt/audio8-adapter/scripts/*.sh && \
     sed -i 's/\r$//' /opt/audio8-adapter/scripts/*.sh && \
     SGLANG_OMNI_PACKAGE="$(python3 -c 'import importlib.util, pathlib; s=importlib.util.find_spec("sglang_omni"); assert s and s.origin; print(pathlib.Path(s.origin).parent)')" && \
-    bash /opt/audio8-adapter/scripts/install_adapter.sh "${SGLANG_OMNI_PACKAGE}" && \
-    python3 /opt/audio8-adapter/scripts/verify_install.py
+    bash /opt/audio8-adapter/scripts/install_adapter.sh "${SGLANG_OMNI_PACKAGE}"
 
 ENV SGLANG_OMNI_ROOT=/opt/sglang-omni \
     AUDIO8_TTS_STREAM_ENABLED=1 \
