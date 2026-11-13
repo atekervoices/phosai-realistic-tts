@@ -162,6 +162,25 @@ def create_audio8_engine(
     except Exception:
         pass
 
+    # Defend against SGLang v0.4.x release_kv_cache signature (checkpoint parameter)
+    try:
+        import inspect
+        import sglang.srt.mem_cache.common as sgl_common
+
+        if not getattr(sgl_common, "_audio8_patched_release_kv", False):
+            _orig_rkc = sgl_common.release_kv_cache
+
+            def _safe_release_kv_cache(req, tree_cache, *args, **kwargs):
+                sig = inspect.signature(_orig_rkc)
+                if "checkpoint" in sig.parameters and "checkpoint" not in kwargs:
+                    kwargs["checkpoint"] = False
+                return _orig_rkc(req, tree_cache, *args, **kwargs)
+
+            sgl_common.release_kv_cache = _safe_release_kv_cache
+            sgl_common._audio8_patched_release_kv = True
+    except Exception:
+        pass
+
     planner = SGLangBatchPlanner(prefill_manager, decode_manager, server_args)
     def stream_adapter(request: Any, output: Any) -> Any:
         if output.data is None:

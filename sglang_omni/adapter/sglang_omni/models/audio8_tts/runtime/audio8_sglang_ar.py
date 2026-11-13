@@ -300,7 +300,10 @@ class Audio8ResourceManager(SGLangResourceManager):
     def free(self, request: SchedulerRequest) -> None:
         data: Audio8SGLangRequestData = request.data
         self._freed_since_compact += 1
-        release_kv_cache(data.req, self.tree_cache)
+        try:
+            release_kv_cache(data.req, self.tree_cache, checkpoint=False)
+        except TypeError:
+            release_kv_cache(data.req, self.tree_cache)
         data._previous_semantic_tokens.clear()
         data._last_codebook_values = None
         data._slow_cache = None

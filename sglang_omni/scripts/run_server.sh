@@ -362,6 +362,15 @@ if rc.exists():
         txt += '\n\nRadixCache.cache_unfinished_req = lambda self, req=None: None\n'
         rc.write_text(txt)
         print('Injected cache_unfinished_req into RadixCache')
+
+comm = pathlib.Path('/sgl-workspace/sglang/python/sglang/srt/mem_cache/common.py')
+if comm.exists():
+    txt = comm.read_text()
+    if 'def release_kv_cache(' in txt:
+        txt = txt.replace('checkpoint: bool,', 'checkpoint: bool = False,')
+        txt = txt.replace('checkpoint: bool)', 'checkpoint: bool = False)')
+        comm.write_text(txt)
+        print('Patched release_kv_cache in common.py')
 " || true
 
 # Auto-download Hugging Face snapshot if not already present on disk
