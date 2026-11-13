@@ -97,9 +97,16 @@ class Audio8ModelRunner:
         model_worker_batch: Any,
         scheduler_output: SchedulerOutput,
     ) -> None:
-        device = model_worker_batch.input_ids.device
         model = self.model_worker.model_runner.model
-        text_embeds = model.get_embed_tokens()(model_worker_batch.input_ids)
+        device = getattr(model, "device", None) or self.model_worker.model_runner.device
+        input_ids = getattr(model_worker_batch, "input_ids", None)
+        if input_ids is None and hasattr(model_worker_batch, "prefill_input_ids_cpu") and model_worker_batch.prefill_input_ids_cpu is not None:
+            input_ids = model_worker_batch.prefill_input_ids_cpu.to(device=device, non_blocking=True)
+            model_worker_batch.input_ids = input_ids
+        if input_ids is None:
+            return
+        device = input_ids.device
+        text_embeds = model.get_embed_tokens()(input_ids)
         offset = 0
         for scheduled in scheduler_output.requests:
             data: Audio8SGLangRequestData = scheduled.data
@@ -252,10 +259,12 @@ class Audio8ModelRunner:
             for index, scheduled in enumerate(scheduler_output.requests):
                 scheduled.data._slow_cache = model._batch_slow_caches[index]
         if schedule_batch.is_prefill_only:
+            input_device = getattr(worker_batch, "input_ids", None)
+            device = input_device.device if input_device is not None else (getattr(model, "device", None) or self.model_worker.model_runner.device)
             batch_result.next_token_ids = torch.zeros(
                 len(worker_batch.seq_lens),
                 dtype=torch.long,
-                device=worker_batch.input_ids.device,
+                device=device,
             )
         self.batch_planner.record_last_batch(schedule_batch)
         outputs = self._build_outputs(scheduler_output)
