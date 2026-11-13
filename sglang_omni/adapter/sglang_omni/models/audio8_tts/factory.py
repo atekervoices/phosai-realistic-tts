@@ -221,10 +221,25 @@ def make_server_args(model_path: str) -> Any:
     max_total_tokens = (
         int(max_total_tokens_env) if max_total_tokens_env is not None else None
     )
+
+    dtype = os.getenv("AUDIO8_TTS_DTYPE")
+    if dtype is None:
+        try:
+            import torch
+            if torch.cuda.is_available():
+                cap = torch.cuda.get_device_capability()
+                # Turing sm_75 and older have no native hardware BF16 tensor cores.
+                # float16 enables Turing Tensor Cores for 2x faster decode speed.
+                dtype = "float16" if cap < (8, 0) else "bfloat16"
+            else:
+                dtype = "float16"
+        except Exception:
+            dtype = "float16"
+
     server_args = ServerArgs(
         model_path=model_path,
         tp_size=1,
-        dtype="bfloat16",
+        dtype=dtype,
         trust_remote_code=True,
         mem_fraction_static=float(os.getenv("AUDIO8_TTS_MEM_FRACTION_STATIC", "0.2")),
         max_total_tokens=max_total_tokens,

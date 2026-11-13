@@ -123,6 +123,8 @@ class Audio8StreamingVocoderExecutor(Executor):
         state = load_state(payload)
         frames: list[torch.Tensor] = []
         emitted_samples = 0
+        prev_tail: np.ndarray | None = None
+        overlap_samples = 256
 
         try:
             while True:
@@ -142,15 +144,43 @@ class Audio8StreamingVocoderExecutor(Executor):
                         f"expected {self._num_codebooks}"
                     )
                 frames.append(frame)
-                if len(frames) % self._chunk_frames:
+
+                # Progressive chunk trigger (matching spark-tts-rs ProgressiveStreamer):
+                # 1. First chunk at 3 frames (~140ms audio) for ultra-low TTFA (<250ms)
+                # 2. Second chunk at 6 frames (quick follow-up to build client buffer)
+                # 3. Steady state every self._chunk_frames (default 6)
+                n_frames = len(frames)
+                if n_frames < 3:
                     continue
+                elif n_frames == 3:
+                    pass
+                elif n_frames < 6:
+                    continue
+                elif n_frames == 6:
+                    pass
+                elif (n_frames - 6) % self._chunk_frames != 0:
+                    continue
+
                 audio, absolute_start = await self._decode_stream_window(frames)
                 stable_end = max(0, audio.size - self._guard_samples)
                 begin = max(0, emitted_samples - absolute_start)
                 if stable_end > begin:
-                    chunk = np.ascontiguousarray(audio[begin:stable_end])
+                    raw_chunk = np.ascontiguousarray(audio[begin:stable_end], dtype=np.float32)
                     emitted_samples = absolute_start + stable_end
-                    await output_queue.put(self._audio_payload(chunk))
+
+                    if prev_tail is not None and raw_chunk.size >= overlap_samples and prev_tail.size == overlap_samples:
+                        ramp = np.linspace(0.0, 1.0, overlap_samples, dtype=np.float32)
+                        raw_chunk[:overlap_samples] = prev_tail * (1.0 - ramp) + raw_chunk[:overlap_samples] * ramp
+
+                    if raw_chunk.size > overlap_samples:
+                        to_send = raw_chunk[:-overlap_samples]
+                        prev_tail = raw_chunk[-overlap_samples:].copy()
+                    else:
+                        to_send = raw_chunk
+                        prev_tail = None
+
+                    if to_send.size > 0:
+                        await output_queue.put(self._audio_payload(to_send))
 
             if not frames:
                 await output_queue.put(None)
@@ -159,9 +189,22 @@ class Audio8StreamingVocoderExecutor(Executor):
             tail, absolute_start = await self._decode_stream_window(frames)
             begin = max(0, emitted_samples - absolute_start)
             if begin < tail.size:
-                chunk = np.ascontiguousarray(tail[begin:])
+                final_chunk = np.ascontiguousarray(tail[begin:], dtype=np.float32)
                 emitted_samples = absolute_start + tail.size
-                await output_queue.put(self._audio_payload(chunk))
+
+                if prev_tail is not None and final_chunk.size >= overlap_samples and prev_tail.size == overlap_samples:
+                    ramp = np.linspace(0.0, 1.0, overlap_samples, dtype=np.float32)
+                    final_chunk[:overlap_samples] = prev_tail * (1.0 - ramp) + final_chunk[:overlap_samples] * ramp
+                    prev_tail = None
+                elif prev_tail is not None:
+                    final_chunk = np.concatenate([prev_tail, final_chunk])
+                    prev_tail = None
+
+                await output_queue.put(self._audio_payload(final_chunk))
+            elif prev_tail is not None:
+                await output_queue.put(self._audio_payload(prev_tail))
+                prev_tail = None
+
             await output_queue.put(None)
 
             full_audio = await self._decode_frames(frames, 0, len(frames))
