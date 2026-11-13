@@ -24,6 +24,8 @@ pub struct SpeakerRegistryEntry {
     pub speaker_id: Option<String>,
     #[serde(default)]
     pub language: Option<String>,
+    #[serde(default)]
+    pub vq_codes: Option<Vec<Vec<i64>>>,
 }
 
 /// Cached or registered voice entry containing pre-encoded `[num_codebooks, T]` VQ codes,
@@ -140,10 +142,10 @@ impl VoiceRegistry {
 
                 let safe_stem = canonical_key.replace(':', "__");
                 let cached_json = registry.voices_dir.join(format!("{}.json", safe_stem));
-                let mut vq_codes = None;
+                let mut vq_codes = entry.vq_codes.clone();
                 let mut sha256 = None;
 
-                if cached_json.is_file() {
+                if vq_codes.is_none() && cached_json.is_file() {
                     if let Ok(cached_str) = fs::read_to_string(&cached_json) {
                         if let Ok(cached_prof) = serde_json::from_str::<VoiceProfile>(&cached_str) {
                             vq_codes = cached_prof.vq_codes;

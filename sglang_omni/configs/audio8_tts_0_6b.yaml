@@ -32,6 +32,8 @@ stages:
       factory: sglang_omni.models.audio8_tts.pipeline.stages.create_vocoder_executor
       args:
         device: cpu
+        chunk_frames: 4
+        context_frames: 48
     get_next: sglang_omni.models.audio8_tts.pipeline.next_stage.vocoder_next
     relay:
       device: cpu

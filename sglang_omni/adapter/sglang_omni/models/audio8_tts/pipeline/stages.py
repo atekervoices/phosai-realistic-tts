@@ -260,6 +260,9 @@ def create_vocoder_executor(
     model_path: str,
     *,
     device: str = "cpu",
+    chunk_frames: int | None = None,
+    context_frames: int | None = None,
+    guard_frames: int | None = None,
 ) -> Audio8StreamingVocoderExecutor:
     device = os.getenv("AUDIO8_VOCODER_DEVICE", device)
     codec = _load_codec(model_path, device)
@@ -273,13 +276,22 @@ def create_vocoder_executor(
     )
     with torch.inference_mode():
         codec.decode(warmup_codes)
+    resolved_chunk_frames = chunk_frames if chunk_frames is not None else int(
+        os.getenv("AUDIO8_TTS_STREAM_CHUNK_FRAMES", "4")
+    )
+    resolved_context_frames = context_frames if context_frames is not None else int(
+        os.getenv("AUDIO8_TTS_STREAM_CONTEXT_FRAMES", "48")
+    )
+    resolved_guard_frames = guard_frames if guard_frames is not None else int(
+        os.getenv("AUDIO8_TTS_STREAM_GUARD_FRAMES", "1")
+    )
     return Audio8StreamingVocoderExecutor(
         codec,
         device=device,
         eos_token_id=config.eos_token_id,
         num_codebooks=config.num_codebooks,
-        chunk_frames=int(os.getenv("AUDIO8_TTS_STREAM_CHUNK_FRAMES", "12")),
-        context_frames=int(os.getenv("AUDIO8_TTS_STREAM_CONTEXT_FRAMES", "128")),
-        guard_frames=int(os.getenv("AUDIO8_TTS_STREAM_GUARD_FRAMES", "1")),
+        chunk_frames=resolved_chunk_frames,
+        context_frames=resolved_context_frames,
+        guard_frames=resolved_guard_frames,
         hop_length=config.codec_frame_size,
     )
