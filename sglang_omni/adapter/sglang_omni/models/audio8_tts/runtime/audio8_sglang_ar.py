@@ -110,8 +110,8 @@ class Audio8ModelRunner:
         offset = 0
         for scheduled in scheduler_output.requests:
             data: Audio8SGLangRequestData = scheduled.data
-            request_length = int(data.req.extend_input_len)
-            prefix_length = len(data.req.prefix_indices)
+            request_length = int(getattr(data.req, "extend_input_len", None) or getattr(data.req, "extend_len", None) or len(data.req.origin_input_ids))
+            prefix_length = int(len(data.req.prefix_indices) if hasattr(data.req, "prefix_indices") else getattr(data.req, "prefix_len", 0))
             if data.vq_mask_tokens is not None and data.vq_parts:
                 mask = data.vq_mask_tokens.to(device=device, dtype=torch.bool).flatten()
                 expected_length = prefix_length + request_length
