@@ -32,7 +32,7 @@ stages:
       factory: sglang_omni.models.audio8_tts.pipeline.stages.create_vocoder_executor
       args:
         device: cuda:0
-        chunk_frames: 4
+        chunk_frames: 8
         context_frames: 48
     get_next: sglang_omni.models.audio8_tts.pipeline.next_stage.vocoder_next
     relay:

@@ -280,7 +280,7 @@ def create_vocoder_executor(
     with torch.inference_mode():
         codec.decode(warmup_codes)
     resolved_chunk_frames = chunk_frames if chunk_frames is not None else int(
-        os.getenv("AUDIO8_TTS_STREAM_CHUNK_FRAMES", "4")
+        os.getenv("AUDIO8_TTS_STREAM_CHUNK_FRAMES", "8")
     )
     resolved_context_frames = context_frames if context_frames is not None else int(
         os.getenv("AUDIO8_TTS_STREAM_CONTEXT_FRAMES", "48")
