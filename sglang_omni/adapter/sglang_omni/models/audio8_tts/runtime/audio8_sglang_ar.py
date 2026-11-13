@@ -59,9 +59,10 @@ class Audio8IterationController:
     def update_request(self, request: SchedulerRequest, output: RequestOutput) -> None:
         data: Audio8SGLangRequestData = request.data
         req = data.req
-        if req.is_chunked > 0:
+        is_chunked = getattr(req, "is_chunked", 0)
+        if is_chunked > 0:
             output.data = None
-            req.is_chunked -= 1
+            req.is_chunked = is_chunked - 1
             return
         codes = output.data.codes.clone()
         semantic = int(codes[0, -1].item())
@@ -72,12 +73,12 @@ class Audio8IterationController:
             data.output_codes.append(codes)
             data._last_codebook_values = codes[1:, 0].clone()
         req.output_ids.append(semantic)
-        if not req.finished() and req.decode_batch_idx == 0:
+        if not req.finished() and getattr(req, "decode_batch_idx", 0) == 0:
             self.tree_cache.cache_unfinished_req(req)
 
     def is_finished(self, request: SchedulerRequest, output: RequestOutput) -> bool:
         data: Audio8SGLangRequestData = request.data
-        if data.req.is_chunked > 0:
+        if getattr(data.req, "is_chunked", 0) > 0:
             return False
         if output.data is None:
             return False
@@ -205,11 +206,12 @@ class Audio8ModelRunner:
         outputs: dict[str, RequestOutput] = {}
         for index, scheduled in enumerate(scheduler_output.requests):
             data: Audio8SGLangRequestData = scheduled.data
+            is_chunked = getattr(data.req, "is_chunked", 0) > 0
             outputs[scheduled.request_id] = RequestOutput(
                 request_id=scheduled.request_id,
                 data=(
                     None
-                    if data.req.is_chunked > 0
+                    if is_chunked
                     else Audio8StepOutput(model._output_codes[index].unsqueeze(-1))
                 ),
                 finished=False,

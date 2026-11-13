@@ -23,6 +23,7 @@ services:
       - HOST=0.0.0.0
     volumes:
       - ~/.cache/huggingface:/root/.cache/huggingface
+      - ~/.cache/flashinfer:/tmp/audio8-flashinfer
       - ./models:/models
     deploy:
       resources:
