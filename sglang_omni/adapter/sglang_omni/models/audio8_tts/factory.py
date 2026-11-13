@@ -110,6 +110,8 @@ def create_audio8_engine(
                 or getattr(model_worker.model_runner.model_config, "context_len", None)
                 or 4096
             )
+        if not hasattr(model_worker.model_runner, "canary_manager"):
+            model_worker.model_runner.canary_manager = None
         if hasattr(model_worker.model_runner, "init_device_graphs"):
             model_worker.model_runner.init_device_graphs()
         elif hasattr(model_worker.model_runner, "init_cuda_graphs"):
