@@ -205,7 +205,8 @@ class Audio8StreamingVocoderExecutor(Executor):
         start: int,
         end: int,
     ) -> np.ndarray:
-        torch.cuda.set_device(self._device)
+        if str(self._device).startswith("cuda"):
+            torch.cuda.set_device(self._device)
         codes = torch.stack(frames[start:end], dim=1).unsqueeze(0)
         with torch.inference_mode():
             audio = self._codec.decode(codes)[0, 0]
