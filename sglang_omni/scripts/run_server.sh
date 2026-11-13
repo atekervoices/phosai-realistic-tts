@@ -47,6 +47,24 @@ for p in sys.path:
                 m.unlink(missing_ok=True)
 " || true
 
+# Patch sglang_omni/vendor/sglang/layers.py if sgl_kernel lacks top_k_top_p_sampling_from_probs
+"${PYTHON_BIN}" -c "
+import pathlib
+p = pathlib.Path('/opt/sglang-omni/sglang_omni/vendor/sglang/layers.py')
+if p.is_file():
+    txt = p.read_text()
+    old = 'from sgl_kernel import top_k_top_p_sampling_from_probs'
+    new = '''try:
+    from sgl_kernel import top_k_top_p_sampling_from_probs
+except ImportError:
+    try:
+        from flashinfer.sampling import top_k_top_p_sampling_from_probs
+    except ImportError:
+        top_k_top_p_sampling_from_probs = None'''
+    if old in txt and 'except ImportError:' not in txt:
+        p.write_text(txt.replace(old, new, 1))
+" || true
+
 # Auto-download Hugging Face snapshot if not already present on disk
 TARGET_DIR="/models/$(echo "${MODEL}" | tr '/' '_')"
 
