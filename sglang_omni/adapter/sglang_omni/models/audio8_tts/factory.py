@@ -104,6 +104,12 @@ def create_audio8_engine(
             model_worker.model_runner.max_running_requests = (
                 server_args.max_running_requests
             )
+        if not hasattr(model_worker.model_runner, "max_total_num_tokens"):
+            model_worker.model_runner.max_total_num_tokens = (
+                getattr(server_args, "max_total_tokens", None)
+                or getattr(model_worker.model_runner.model_config, "context_len", None)
+                or 4096
+            )
         if hasattr(model_worker.model_runner, "init_device_graphs"):
             model_worker.model_runner.init_device_graphs()
         elif hasattr(model_worker.model_runner, "init_cuda_graphs"):
