@@ -10,7 +10,7 @@ stages:
     executor:
       factory: sglang_omni.models.audio8_tts.pipeline.stages.create_preprocessing_executor
       args:
-        device: cuda:0
+        device: cpu
     get_next: sglang_omni.models.audio8_tts.pipeline.next_stage.preprocessing_next
     relay:
       device: cpu
@@ -23,7 +23,7 @@ stages:
         max_new_tokens: 1024
     get_next: sglang_omni.models.audio8_tts.pipeline.next_stage.tts_engine_next
     relay:
-      device: cuda
+      device: cpu
     stream_to:
       - to_stage: vocoder
   - name: vocoder
@@ -31,7 +31,7 @@ stages:
     executor:
       factory: sglang_omni.models.audio8_tts.pipeline.stages.create_vocoder_executor
       args:
-        device: cuda:0
+        device: cpu
     get_next: sglang_omni.models.audio8_tts.pipeline.next_stage.vocoder_next
     relay:
       device: cpu

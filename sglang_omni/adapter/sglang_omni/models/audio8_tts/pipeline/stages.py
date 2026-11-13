@@ -120,8 +120,9 @@ def _validate_codes(value: Any, num_codebooks: int, codebook_size: int) -> torch
 def create_preprocessing_executor(
     model_path: str,
     *,
-    device: str = "cuda:0",
+    device: str = "cpu",
 ) -> PreprocessingExecutor:
+    device = os.getenv("AUDIO8_PREPROCESSING_DEVICE", device)
     from transformers import PreTrainedTokenizerFast
 
     config = _load_config(model_path)
@@ -258,8 +259,9 @@ def create_sglang_tts_engine_executor(
 def create_vocoder_executor(
     model_path: str,
     *,
-    device: str = "cuda:0",
+    device: str = "cpu",
 ) -> Audio8StreamingVocoderExecutor:
+    device = os.getenv("AUDIO8_VOCODER_DEVICE", device)
     codec = _load_codec(model_path, device)
     config = _load_config(model_path)
     warmup_codes = torch.zeros(
