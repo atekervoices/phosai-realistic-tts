@@ -304,6 +304,18 @@ if p.exists():
         p.write_text(txt.replace(old, new))
 " || true
 
+# Patch sglang PrefillAdder when per_req_token_overhead is None in sglang_omni
+"${PYTHON_BIN}" -c "
+import pathlib
+p = pathlib.Path('/sgl-workspace/sglang/python/sglang/srt/managers/schedule_policy.py')
+if p.exists():
+    txt = p.read_text()
+    old = '+ self.per_req_token_overhead'
+    new = '+ (self.per_req_token_overhead or 0)'
+    if old in txt and new not in txt:
+        p.write_text(txt.replace(old, new))
+" || true
+
 # Auto-download Hugging Face snapshot if not already present on disk
 TARGET_DIR="/models/$(echo "${MODEL}" | tr '/' '_')"
 
