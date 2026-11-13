@@ -257,6 +257,32 @@ if p.exists():
         p.write_text(txt.replace(old, new, 1))
 " || true
 
+# Patch OmniEngine._run_loop so exceptions in schedule() are logged instead of silently killing the task
+"${PYTHON_BIN}" -c "
+import pathlib
+p = pathlib.Path('/opt/sglang-omni/sglang_omni/engines/omni/engine.py')
+if p.exists():
+    txt = p.read_text()
+    old = '''        while self._running:
+            if self.enable_overlap:
+                await self._step_overlap()
+            else:
+                await self._step_normal()
+            await asyncio.sleep(0)  # Yield to other coroutines'''
+    new = '''        while self._running:
+            try:
+                if self.enable_overlap:
+                    await self._step_overlap()
+                else:
+                    await self._step_normal()
+            except Exception:
+                logger.exception(\"OmniEngine loop error\")
+                await asyncio.sleep(0.05)
+            await asyncio.sleep(0)  # Yield to other coroutines'''
+    if old in txt and 'OmniEngine loop error' not in txt:
+        p.write_text(txt.replace(old, new, 1))
+" || true
+
 # Auto-download Hugging Face snapshot if not already present on disk
 TARGET_DIR="/models/$(echo "${MODEL}" | tr '/' '_')"
 
