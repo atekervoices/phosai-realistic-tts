@@ -292,6 +292,18 @@ if p.exists():
         p.write_text(txt.replace(old, new, 1))
 " || true
 
+# Patch sglang Req.refresh_fill_ids for list + array.array mismatch with sglang_omni
+"${PYTHON_BIN}" -c "
+import pathlib
+p = pathlib.Path('/sgl-workspace/sglang/python/sglang/srt/managers/schedule_batch.py')
+if p.exists():
+    txt = p.read_text()
+    old = 'self.origin_input_ids + self.output_ids'
+    new = 'list(self.origin_input_ids) + list(self.output_ids)'
+    if old in txt and new not in txt:
+        p.write_text(txt.replace(old, new))
+" || true
+
 # Auto-download Hugging Face snapshot if not already present on disk
 TARGET_DIR="/models/$(echo "${MODEL}" | tr '/' '_')"
 
