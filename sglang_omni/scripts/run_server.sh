@@ -242,6 +242,21 @@ if mr.is_file():
     mr.write_text(txt)
 " || true
 
+# Patch sglang_omni/engines/ar/sglang_backend/scheduler/cache.py when ChunkCache is removed in newer sglang
+"${PYTHON_BIN}" -c "
+import pathlib
+p = pathlib.Path('/opt/sglang-omni/sglang_omni/engines/ar/sglang_backend/scheduler/cache.py')
+if p.exists():
+    txt = p.read_text()
+    old = '        from sglang.srt.mem_cache.chunk_cache import ChunkCache'
+    new = '''        try:
+            from sglang.srt.mem_cache.chunk_cache import ChunkCache
+        except ImportError:
+            from sglang.srt.mem_cache.radix_cache import RadixCache as ChunkCache'''
+    if old in txt and 'except ImportError:' not in txt:
+        p.write_text(txt.replace(old, new, 1))
+" || true
+
 # Auto-download Hugging Face snapshot if not already present on disk
 TARGET_DIR="/models/$(echo "${MODEL}" | tr '/' '_')"
 
