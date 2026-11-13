@@ -33,8 +33,19 @@ fi
 export FLASHINFER_WORKSPACE_BASE="${FLASHINFER_WORKSPACE_BASE:-/tmp/audio8-flashinfer}"
 export FLASHINFER_DISABLE_VERSION_CHECK="${FLASHINFER_DISABLE_VERSION_CHECK:-1}"
 
-# Remove mismatched flashinfer-jit-cache package if present so FlashInfer falls back cleanly to AOT
+# Remove mismatched flashinfer-jit-cache package and any leftover namespace directory so FlashInfer falls back cleanly to AOT
 "${PYTHON_BIN}" -m pip uninstall -y flashinfer-jit-cache >/dev/null 2>&1 || true
+"${PYTHON_BIN}" -c "
+import pathlib, shutil, sys
+for p in sys.path:
+    d = pathlib.Path(p)
+    if d.is_dir():
+        for m in d.glob('flashinfer_jit_cache*'):
+            if m.is_dir():
+                shutil.rmtree(m, ignore_errors=True)
+            else:
+                m.unlink(missing_ok=True)
+" || true
 
 # Auto-download Hugging Face snapshot if not already present on disk
 TARGET_DIR="/models/$(echo "${MODEL}" | tr '/' '_')"
