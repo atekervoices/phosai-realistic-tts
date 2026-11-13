@@ -141,6 +141,25 @@ def create_audio8_engine(
         token_to_kv_pool_allocator=kv_allocator,
         on_retract=lambda request: prefill_manager.add_one_request(request),
     )
+    # Defend against SGLang v0.4.x keyword argument rename (chunked_req_to_exclude -> reqs_to_exclude)
+    try:
+        from sglang.srt.managers.schedule_batch import ScheduleBatch
+
+        if not getattr(ScheduleBatch, "_audio8_patched_filter_batch", False):
+            _orig_fb = ScheduleBatch.filter_batch
+
+            def _safe_filter_batch(self, *args, **kwargs):
+                if "chunked_req_to_exclude" in kwargs:
+                    val = kwargs.pop("chunked_req_to_exclude")
+                    if not args and "reqs_to_exclude" not in kwargs:
+                        kwargs["reqs_to_exclude"] = val
+                return _orig_fb(self, *args, **kwargs)
+
+            ScheduleBatch.filter_batch = _safe_filter_batch
+            ScheduleBatch._audio8_patched_filter_batch = True
+    except Exception:
+        pass
+
     planner = SGLangBatchPlanner(prefill_manager, decode_manager, server_args)
     def stream_adapter(request: Any, output: Any) -> Any:
         if output.data is None:

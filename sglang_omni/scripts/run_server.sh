@@ -328,6 +328,34 @@ if p.exists():
         p.write_text(txt.replace(old, new))
 " || true
 
+# Patch sglang_ar.py and schedule_batch.py for chunked_req_to_exclude -> reqs_to_exclude mismatch
+"${PYTHON_BIN}" -c "
+import pathlib
+for path_str in [
+    '/opt/sglang-omni/sglang_omni/engines/omni/runtime/sglang_ar.py',
+    '/opt/audio8-adapter/sglang_omni/engines/omni/runtime/sglang_ar.py'
+]:
+    p = pathlib.Path(path_str)
+    if p.exists():
+        txt = p.read_text()
+        if 'chunked_req_to_exclude' in txt:
+            p.write_text(txt.replace('chunked_req_to_exclude', 'reqs_to_exclude'))
+            print(f'Patched chunked_req_to_exclude in {p}')
+
+sb = pathlib.Path('/sgl-workspace/sglang/python/sglang/srt/managers/schedule_batch.py')
+if sb.exists():
+    txt = sb.read_text()
+    marker = '# patched-filter-batch-args'
+    if marker not in txt and 'def filter_batch(' in txt:
+        txt = txt.replace(
+            'def filter_batch(',
+            f'{marker}\n    def filter_batch(self, reqs_to_exclude=None, keep_indices=None, chunked_req_to_exclude=None, **kwargs):\n        if reqs_to_exclude is None:\n            reqs_to_exclude = chunked_req_to_exclude\n        return self._orig_filter_batch(reqs_to_exclude=reqs_to_exclude, keep_indices=keep_indices)\n    def _orig_filter_batch(',
+            1
+        )
+        sb.write_text(txt)
+        print('Patched ScheduleBatch.filter_batch in schedule_batch.py')
+" || true
+
 # Auto-download Hugging Face snapshot if not already present on disk
 TARGET_DIR="/models/$(echo "${MODEL}" | tr '/' '_')"
 
