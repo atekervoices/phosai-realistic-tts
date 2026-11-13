@@ -210,4 +210,6 @@ def make_server_args(model_path: str) -> Any:
         attention_backend = PORTABLE_ATTENTION_BACKEND
     if attention_backend:
         server_args.attention_backend = attention_backend
+    if getattr(server_args, "page_size", None) is None:
+        server_args.page_size = 1
     return server_args
