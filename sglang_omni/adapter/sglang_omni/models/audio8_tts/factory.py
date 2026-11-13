@@ -94,7 +94,7 @@ def create_audio8_engine(
     model_worker.model_runner.model.setup_audio8_decode(
         server_args.max_running_requests
     )
-    setattr(server_args, disable_attr, not want_cuda_graph)
+    object.__setattr__(server_args, disable_attr, not want_cuda_graph)
     if want_cuda_graph:
         model_worker.model_runner.init_device_graphs()
 
