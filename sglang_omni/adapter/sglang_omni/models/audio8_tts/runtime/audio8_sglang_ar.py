@@ -213,7 +213,10 @@ class Audio8ModelRunner:
         from sglang.srt.model_executor.forward_batch_info import ForwardBatch
 
         schedule_batch = scheduler_output.batch_data
-        worker_batch = schedule_batch.get_model_worker_batch()
+        if hasattr(schedule_batch, "get_model_worker_batch"):
+            worker_batch = schedule_batch.get_model_worker_batch()
+        else:
+            worker_batch = schedule_batch
         is_prefill = schedule_batch.forward_mode.is_extend()
         model = self.model_worker.model_runner.model
         if len(scheduler_output.requests) != len(schedule_batch.reqs):
@@ -231,7 +234,17 @@ class Audio8ModelRunner:
         )
         if is_prefill:
             self._inject_reference_embeds(worker_batch, scheduler_output)
-        forward_batch = ForwardBatch.init_new(worker_batch, self.model_worker.model_runner)
+        try:
+            forward_batch = ForwardBatch.init_new(
+                schedule_batch,
+                self.model_worker.model_runner,
+                return_hidden_states_before_norm=False,
+            )
+        except TypeError:
+            forward_batch = ForwardBatch.init_new(
+                schedule_batch,
+                self.model_worker.model_runner,
+            )
         batch_result = self.model_worker.forward_batch_generation(forward_batch)
         if hasattr(model, "_batch_slow_caches"):
             # Prefill seeds / decode advances each request's Falcon-H1 hybrid
