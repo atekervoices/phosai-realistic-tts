@@ -149,10 +149,16 @@ class Audio8ModelRunner:
         is_prefill: bool,
     ) -> None:
         model = self.model_worker.model_runner.model
+        device = getattr(model, "device", None) or self.model_worker.model_runner.device
         batch = len(scheduler_output.requests)
         model._previous_valid[:batch].zero_()
         if not is_prefill:
-            input_ids = model_worker_batch.input_ids
+            input_ids = torch.tensor(
+                [scheduled.data.req.output_ids[-1] for scheduled in scheduler_output.requests],
+                dtype=torch.long,
+                device=device,
+            )
+            model_worker_batch.input_ids = input_ids
             semantic_mask = (input_ids >= model.config.semantic_begin_id) & (
                 input_ids <= model.config.semantic_end_id
             )
@@ -244,6 +250,11 @@ class Audio8ModelRunner:
         )
         if is_prefill:
             self._inject_reference_embeds(worker_batch, scheduler_output)
+        else:
+            if hasattr(worker_batch, "input_embeds"):
+                worker_batch.input_embeds = None
+            if hasattr(schedule_batch, "input_embeds"):
+                schedule_batch.input_embeds = None
         try:
             forward_batch = ForwardBatch.init_new(
                 schedule_batch,
