@@ -100,6 +100,10 @@ def create_audio8_engine(
         except AttributeError:
             if hasattr(server_args, "__dict__"):
                 server_args.__dict__[disable_attr] = False
+        if not hasattr(model_worker.model_runner, "max_running_requests"):
+            model_worker.model_runner.max_running_requests = (
+                server_args.max_running_requests
+            )
         if hasattr(model_worker.model_runner, "init_device_graphs"):
             model_worker.model_runner.init_device_graphs()
         elif hasattr(model_worker.model_runner, "init_cuda_graphs"):
