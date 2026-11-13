@@ -212,7 +212,16 @@ if mr.is_file():
                 from sglang.srt.runtime_context import get_parallel
                 self.tp_group = get_parallel().tp_group
             except Exception:
-                pass'''
+                pass
+        if hasattr(self, 'alloc_memory_pool') and getattr(self, 'token_to_kv_pool_allocator', None) is None:
+            self.alloc_memory_pool()
+        if hasattr(self, '_init_post_memory_pool_components'):
+            try:
+                self._init_post_memory_pool_components()
+            except Exception as _e:
+                print(f'[audio8-tts] _init_post_memory_pool_components warning: {_e}')
+        if hasattr(self, 'init_attention_backends') and getattr(self, 'attn_backend', None) is None:
+            self.init_attention_backends()'''
         txt = txt.replace(old_super, new_super, 1)
     if '# patched-by-audio8-tts' not in txt:
         marker = '    def _register_omni_model(self):'
