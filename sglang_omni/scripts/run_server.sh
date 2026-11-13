@@ -200,8 +200,23 @@ if mr.is_file():
             'server_args': server_args,
         }
         try:
-            from sglang.srt.runtime_context import publish
+            from sglang.srt.runtime_context import get_parallel, publish
             publish(server_args, role='scheduler')
+            _p = get_parallel()
+            for _k, _v in (
+                ('tp_rank', tp_rank),
+                ('tp_size', tp_size),
+                ('pp_rank', pp_rank),
+                ('pp_size', pp_size),
+                ('moe_ep_rank', moe_ep_rank),
+                ('moe_ep_size', moe_ep_size),
+            ):
+                try:
+                    _ov = _p.override(**{_k: _v})
+                    if hasattr(_ov, '__enter__'):
+                        _ov.__enter__()
+                except Exception:
+                    pass
         except Exception:
             pass
         super().__init__(**{k: v for k, v in _mr_kwargs.items() if k in _mr_params})'''
