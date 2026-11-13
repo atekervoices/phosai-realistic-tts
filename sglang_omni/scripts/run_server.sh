@@ -170,6 +170,37 @@ except ImportError:
 mr = pathlib.Path('/opt/sglang-omni/sglang_omni/engines/ar/sglang_backend/model_runner.py')
 if mr.is_file():
     txt = mr.read_text()
+    old_super = '''        super().__init__(
+            model_config=model_config,
+            mem_fraction_static=server_args.mem_fraction_static,
+            gpu_id=gpu_id,
+            tp_rank=tp_rank,
+            tp_size=tp_size,
+            moe_ep_rank=moe_ep_rank,
+            moe_ep_size=moe_ep_size,
+            pp_rank=pp_rank,
+            pp_size=pp_size,
+            nccl_port=nccl_port,
+            server_args=server_args,
+        )'''
+    if old_super in txt:
+        new_super = '''        import inspect
+        _mr_params = inspect.signature(ModelRunner.__init__).parameters
+        _mr_kwargs = {
+            'model_config': model_config,
+            'mem_fraction_static': server_args.mem_fraction_static,
+            'gpu_id': gpu_id,
+            'tp_rank': tp_rank,
+            'tp_size': tp_size,
+            'moe_ep_rank': moe_ep_rank,
+            'moe_ep_size': moe_ep_size,
+            'pp_rank': pp_rank,
+            'pp_size': pp_size,
+            'nccl_port': nccl_port,
+            'server_args': server_args,
+        }
+        super().__init__(**{k: v for k, v in _mr_kwargs.items() if k in _mr_params})'''
+        txt = txt.replace(old_super, new_super, 1)
     if '# patched-by-audio8-tts' not in txt:
         marker = '    def _register_omni_model(self):'
         idx = txt.find(marker)
@@ -194,7 +225,8 @@ if mr.is_file():
         except Exception:
             pass
 '''
-            mr.write_text(txt[:idx] + replacement)
+            txt = txt[:idx] + replacement
+    mr.write_text(txt)
 " || true
 
 # Auto-download Hugging Face snapshot if not already present on disk
