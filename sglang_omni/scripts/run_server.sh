@@ -47,22 +47,91 @@ for p in sys.path:
                 m.unlink(missing_ok=True)
 " || true
 
-# Patch sglang_omni/vendor/sglang/layers.py if sgl_kernel lacks top_k_top_p_sampling_from_probs
+# Patch sglang_omni/vendor/sglang/layers.py for older sglang/sgl_kernel in base image
 "${PYTHON_BIN}" -c "
 import pathlib
 p = pathlib.Path('/opt/sglang-omni/sglang_omni/vendor/sglang/layers.py')
 if p.is_file():
     txt = p.read_text()
-    old = 'from sgl_kernel import top_k_top_p_sampling_from_probs'
-    new = '''try:
+    marker = '# patched-by-audio8-tts'
+    if marker not in txt:
+        start = txt.find('from sgl_kernel import top_k_top_p_sampling_from_probs')
+        end = txt.find('# ---------------------------------------------------------------------------')
+        if start != -1 and end != -1:
+            replacement = '''# patched-by-audio8-tts
+try:
     from sgl_kernel import top_k_top_p_sampling_from_probs
 except ImportError:
     try:
         from flashinfer.sampling import top_k_top_p_sampling_from_probs
     except ImportError:
-        top_k_top_p_sampling_from_probs = None'''
-    if old in txt and 'except ImportError:' not in txt:
-        p.write_text(txt.replace(old, new, 1))
+        top_k_top_p_sampling_from_probs = None
+try:
+    from sglang.srt.layers.activation import SiluAndMul
+except ImportError:
+    SiluAndMul = None
+try:
+    from sglang.srt.layers.communicator import LayerCommunicator, LayerScatterModes
+except ImportError:
+    LayerCommunicator = None
+    LayerScatterModes = None
+try:
+    from sglang.srt.layers.dp_attention import get_attention_tp_rank, get_attention_tp_size
+except ImportError:
+    get_attention_tp_rank = None
+    get_attention_tp_size = None
+from sglang.srt.layers.layernorm import RMSNorm
+from sglang.srt.layers.linear import (
+    MergedColumnParallelLinear,
+    QKVParallelLinear,
+    RowParallelLinear,
+)
+try:
+    from sglang.srt.layers.linear import ReplicatedLinear
+except ImportError:
+    ReplicatedLinear = None
+try:
+    from sglang.srt.layers.moe import (
+        get_moe_a2a_backend,
+        should_use_flashinfer_cutlass_moe_fp4_allgather,
+    )
+except ImportError:
+    get_moe_a2a_backend = None
+    should_use_flashinfer_cutlass_moe_fp4_allgather = None
+try:
+    from sglang.srt.layers.moe.ep_moe.layer import get_moe_impl_class
+except ImportError:
+    get_moe_impl_class = None
+try:
+    from sglang.srt.layers.moe.fused_moe_triton.layer import FusedMoE
+except ImportError:
+    FusedMoE = None
+try:
+    from sglang.srt.layers.moe.topk import TopK
+except ImportError:
+    TopK = None
+try:
+    from sglang.srt.layers.moe.utils import RoutingMethodType
+except ImportError:
+    RoutingMethodType = None
+try:
+    from sglang.srt.layers.quantization.base_config import QuantizationConfig
+except ImportError:
+    QuantizationConfig = None
+from sglang.srt.layers.radix_attention import RadixAttention
+from sglang.srt.layers.rotary_embedding import get_rope
+try:
+    from sglang.srt.layers.rotary_embedding import MRotaryEmbedding
+except ImportError:
+    MRotaryEmbedding = None
+try:
+    from sglang.srt.layers.utils import get_layer_id
+except ImportError:
+    get_layer_id = None
+from sglang.srt.layers.vocab_parallel_embedding import VocabParallelEmbedding
+
+'''
+            p.write_text(txt[:start] + replacement + txt[end:])
 " || true
 
 # Auto-download Hugging Face snapshot if not already present on disk
