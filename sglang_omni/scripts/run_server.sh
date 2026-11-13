@@ -206,7 +206,13 @@ if mr.is_file():
             init_parallel_runtime(server_args=server_args, device=getattr(server_args, 'device', 'cuda') or 'cuda', dist_port=self.nccl_port)
         except Exception as _e:
             print(f'[audio8-tts] runtime_context setup warning: {_e}')
-        super().__init__(**{k: v for k, v in _mr_kwargs.items() if k in _mr_params})'''
+        super().__init__(**{k: v for k, v in _mr_kwargs.items() if k in _mr_params})
+        if not hasattr(self, 'tp_group'):
+            try:
+                from sglang.srt.runtime_context import get_parallel
+                self.tp_group = get_parallel().tp_group
+            except Exception:
+                pass'''
         txt = txt.replace(old_super, new_super, 1)
     if '# patched-by-audio8-tts' not in txt:
         marker = '    def _register_omni_model(self):'
