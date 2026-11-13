@@ -354,6 +354,14 @@ if sb.exists():
         )
         sb.write_text(txt)
         print('Patched ScheduleBatch.filter_batch in schedule_batch.py')
+
+rc = pathlib.Path('/sgl-workspace/sglang/python/sglang/srt/mem_cache/radix_cache.py')
+if rc.exists():
+    txt = rc.read_text()
+    if 'def cache_unfinished_req' not in txt:
+        txt += '\n\nRadixCache.cache_unfinished_req = lambda self, req=None: None\n'
+        rc.write_text(txt)
+        print('Injected cache_unfinished_req into RadixCache')
 " || true
 
 # Auto-download Hugging Face snapshot if not already present on disk

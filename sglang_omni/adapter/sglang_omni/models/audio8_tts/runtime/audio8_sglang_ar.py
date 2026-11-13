@@ -74,7 +74,8 @@ class Audio8IterationController:
             data._last_codebook_values = codes[1:, 0].clone()
         req.output_ids.append(semantic)
         if not req.finished() and getattr(req, "decode_batch_idx", 0) == 0:
-            self.tree_cache.cache_unfinished_req(req)
+            if hasattr(self.tree_cache, "cache_unfinished_req"):
+                self.tree_cache.cache_unfinished_req(req)
 
     def is_finished(self, request: SchedulerRequest, output: RequestOutput) -> bool:
         data: Audio8SGLangRequestData = request.data

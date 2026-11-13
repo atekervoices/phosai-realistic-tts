@@ -126,6 +126,8 @@ def create_audio8_engine(
         kv_allocator,
         server_args.page_size,
     )
+    if not hasattr(tree_cache, "cache_unfinished_req"):
+        setattr(tree_cache, "cache_unfinished_req", lambda req: None)
     prefill_manager = PrefillManager(
         page_size=server_args.page_size,
         chunked_prefill_size=server_args.chunked_prefill_size,
