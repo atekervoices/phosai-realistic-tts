@@ -201,7 +201,9 @@ if mr.is_file():
         }
         try:
             from sglang.srt.runtime_context import SpawnRanks, publish
+            from sglang.srt.distributed.bootstrap import init_parallel_runtime
             publish(server_args, role='scheduler', ranks=SpawnRanks(world_rank=tp_rank, gpu_id=gpu_id))
+            init_parallel_runtime(server_args=server_args, device=getattr(server_args, 'device', 'cuda') or 'cuda', dist_port=self.nccl_port)
         except Exception as _e:
             print(f'[audio8-tts] runtime_context setup warning: {_e}')
         super().__init__(**{k: v for k, v in _mr_kwargs.items() if k in _mr_params})'''
