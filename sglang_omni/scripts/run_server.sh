@@ -199,6 +199,11 @@ if mr.is_file():
             'nccl_port': nccl_port,
             'server_args': server_args,
         }
+        try:
+            from sglang.srt.runtime_context import publish
+            publish(server_args, role='scheduler')
+        except Exception:
+            pass
         super().__init__(**{k: v for k, v in _mr_kwargs.items() if k in _mr_params})'''
         txt = txt.replace(old_super, new_super, 1)
     if '# patched-by-audio8-tts' not in txt:
