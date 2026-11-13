@@ -100,7 +100,12 @@ def create_audio8_engine(
         except AttributeError:
             if hasattr(server_args, "__dict__"):
                 server_args.__dict__[disable_attr] = False
-        model_worker.model_runner.init_device_graphs()
+        if hasattr(model_worker.model_runner, "init_device_graphs"):
+            model_worker.model_runner.init_device_graphs()
+        elif hasattr(model_worker.model_runner, "init_cuda_graphs"):
+            model_worker.model_runner.init_cuda_graphs()
+        elif hasattr(server_args, "__dict__"):
+            server_args.__dict__[disable_attr] = True
 
     request_pool, kv_allocator = model_worker.get_memory_pool()
     tree_cache = create_tree_cache(
