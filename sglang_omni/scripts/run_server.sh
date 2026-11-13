@@ -316,6 +316,18 @@ if p.exists():
         p.write_text(txt.replace(old, new))
 " || true
 
+# Patch sglang flatten_arrays_to_pinned_cpu to accept list alongside array.array
+"${PYTHON_BIN}" -c "
+import pathlib
+p = pathlib.Path('/sgl-workspace/sglang/python/sglang/srt/utils/common.py')
+if p.exists():
+    txt = p.read_text()
+    old = 'np.frombuffer(p, dtype=np.int64)'
+    new = '(np.asarray(p, dtype=np.int64) if isinstance(p, list) else np.frombuffer(p, dtype=np.int64))'
+    if old in txt and 'isinstance(p, list)' not in txt:
+        p.write_text(txt.replace(old, new))
+" || true
+
 # Auto-download Hugging Face snapshot if not already present on disk
 TARGET_DIR="/models/$(echo "${MODEL}" | tr '/' '_')"
 
