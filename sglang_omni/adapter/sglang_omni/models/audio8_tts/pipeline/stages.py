@@ -67,7 +67,10 @@ def _load_codec(model_path: str, device: str) -> Any:
         if not key.endswith(("freqs_cis", "causal_mask"))
     }
     codec.load_state_dict(state, strict=True, assign=True)
-    dtype = torch.float32 if device == "cpu" else torch.bfloat16
+    if str(device).startswith("cuda"):
+        dtype = torch.bfloat16 if (torch.cuda.is_available() and torch.cuda.is_bf16_supported()) else torch.float16
+    else:
+        dtype = torch.float32
     return codec.eval().to(device=device, dtype=dtype)
 
 
@@ -259,7 +262,7 @@ def create_sglang_tts_engine_executor(
 def create_vocoder_executor(
     model_path: str,
     *,
-    device: str = "cpu",
+    device: str = "cuda:0",
     chunk_frames: int | None = None,
     context_frames: int | None = None,
     guard_frames: int | None = None,
