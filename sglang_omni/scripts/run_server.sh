@@ -134,6 +134,69 @@ from sglang.srt.layers.vocab_parallel_embedding import VocabParallelEmbedding
             p.write_text(txt[:start] + replacement + txt[end:])
 " || true
 
+# Patch vendor/sglang/distributed.py and guard unrelated model registrations in model_runner.py
+"${PYTHON_BIN}" -c "
+import pathlib
+d = pathlib.Path('/opt/sglang-omni/sglang_omni/vendor/sglang/distributed.py')
+if d.is_file():
+    txt = d.read_text()
+    if '# patched-by-audio8-tts' not in txt and 'from sglang.srt.distributed import (' in txt:
+        old = '''from sglang.srt.distributed import (
+    get_tensor_model_parallel_rank,
+    get_tensor_model_parallel_world_size,
+    tensor_model_parallel_all_reduce,
+)'''
+        new = '''# patched-by-audio8-tts
+try:
+    from sglang.srt.distributed import (
+        get_tensor_model_parallel_rank,
+        get_tensor_model_parallel_world_size,
+        tensor_model_parallel_all_reduce,
+    )
+except ImportError:
+    try:
+        from sglang.srt.distributed.parallel_state import (
+            get_tensor_model_parallel_rank,
+            get_tensor_model_parallel_world_size,
+            tensor_model_parallel_all_reduce,
+        )
+    except ImportError:
+        def get_tensor_model_parallel_rank(): return 0
+        def get_tensor_model_parallel_world_size(): return 1
+        def tensor_model_parallel_all_reduce(x): return x'''
+        if old in txt:
+            d.write_text(txt.replace(old, new, 1))
+
+mr = pathlib.Path('/opt/sglang-omni/sglang_omni/engines/ar/sglang_backend/model_runner.py')
+if mr.is_file():
+    txt = mr.read_text()
+    if '# patched-by-audio8-tts' not in txt:
+        marker = '    def _register_omni_model(self):'
+        idx = txt.find(marker)
+        if idx != -1:
+            replacement = '''    def _register_omni_model(self):
+        # patched-by-audio8-tts
+        from sglang.srt.models.registry import ModelRegistry
+        for _reg in (
+            ('sglang_omni.models.fishaudio_s2_pro.sglang_model', 'S2ProSGLangTextModel'),
+            ('sglang_omni.models.qwen3_omni.talker', 'Qwen3OmniTalker'),
+            ('sglang_omni.models.ming_omni.thinker', 'BailingMoeV2ForCausalLM'),
+        ):
+            try:
+                _mod = __import__(_reg[0], fromlist=[_reg[1]])
+                ModelRegistry.models[_reg[1]] = getattr(_mod, _reg[1])
+            except Exception:
+                pass
+        try:
+            from sglang_omni.models.ming_omni.thinker import BailingMM2Config
+            from transformers import AutoConfig
+            AutoConfig.register(\"bailingmm_moe_v2_lite\", BailingMM2Config)
+        except Exception:
+            pass
+'''
+            mr.write_text(txt[:idx] + replacement)
+" || true
+
 # Auto-download Hugging Face snapshot if not already present on disk
 TARGET_DIR="/models/$(echo "${MODEL}" | tr '/' '_')"
 
