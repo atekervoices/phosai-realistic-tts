@@ -203,22 +203,16 @@ if mr.is_file():
             from sglang.srt.runtime_context import get_parallel, publish
             publish(server_args, role='scheduler')
             _p = get_parallel()
-            for _k, _v in (
-                ('tp_rank', tp_rank),
-                ('tp_size', tp_size),
-                ('pp_rank', pp_rank),
-                ('pp_size', pp_size),
-                ('moe_ep_rank', moe_ep_rank),
-                ('moe_ep_size', moe_ep_size),
-            ):
+            if hasattr(_p, 'override_permanently'):
                 try:
-                    _ov = _p.override(**{_k: _v})
-                    if hasattr(_ov, '__enter__'):
-                        _ov.__enter__()
+                    _p.override_permanently(tp_rank=tp_rank, pp_rank=pp_rank, moe_ep_rank=moe_ep_rank)
                 except Exception:
-                    pass
-        except Exception:
-            pass
+                    _p.override_permanently(tp_rank=tp_rank)
+            else:
+                self._parallel_ov = _p.override(tp_rank=tp_rank)
+                self._parallel_ov.__enter__()
+        except Exception as _e:
+            print(f'[audio8-tts] runtime_context setup warning: {_e}')
         super().__init__(**{k: v for k, v in _mr_kwargs.items() if k in _mr_params})'''
         txt = txt.replace(old_super, new_super, 1)
     if '# patched-by-audio8-tts' not in txt:
