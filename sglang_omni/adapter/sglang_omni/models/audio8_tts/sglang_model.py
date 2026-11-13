@@ -733,7 +733,7 @@ class Audio8SGLangModel(nn.Module):
         if input_embeds is None and forward_batch.input_embeds is not None:
             input_embeds = forward_batch.input_embeds
         if input_embeds is not None:
-            hidden_states = input_embeds
+            hidden_states = input_embeds.to(dtype=self.embed_tokens.weight.dtype)
         elif self._decode_ready:
             hidden_states = self._embed_decode(input_ids)
         else:

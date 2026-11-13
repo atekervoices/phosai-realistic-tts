@@ -137,7 +137,7 @@ class Audio8ModelRunner:
                     indices = mask_slice.nonzero(as_tuple=True)[0] + offset
                     text_embeds[indices] += codebook_sum.to(text_embeds.dtype)
             offset += request_length
-        model_worker_batch.input_embeds = text_embeds
+        model_worker_batch.input_embeds = text_embeds.to(dtype=model.embed_tokens.weight.dtype)
 
     def _update_runtime_buffers(
         self,
