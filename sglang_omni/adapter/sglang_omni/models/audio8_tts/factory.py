@@ -81,6 +81,8 @@ def create_audio8_engine(
 
     if server_args.attention_backend is None:
         server_args.attention_backend = "fa3"
+    if getattr(server_args, "random_seed", None) is None:
+        server_args.random_seed = 42
     disable_attr = "disable_" + "cuda_graph"
     want_cuda_graph = not bool(getattr(server_args, disable_attr, False))
     setattr(server_args, disable_attr, True)
