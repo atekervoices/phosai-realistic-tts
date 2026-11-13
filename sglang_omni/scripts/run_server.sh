@@ -200,17 +200,8 @@ if mr.is_file():
             'server_args': server_args,
         }
         try:
-            from sglang.srt.runtime_context import get_parallel, publish
-            publish(server_args, role='scheduler')
-            _p = get_parallel()
-            if hasattr(_p, 'override_permanently'):
-                try:
-                    _p.override_permanently(tp_rank=tp_rank, pp_rank=pp_rank, moe_ep_rank=moe_ep_rank)
-                except Exception:
-                    _p.override_permanently(tp_rank=tp_rank)
-            else:
-                self._parallel_ov = _p.override(tp_rank=tp_rank)
-                self._parallel_ov.__enter__()
+            from sglang.srt.runtime_context import SpawnRanks, publish
+            publish(server_args, role='scheduler', ranks=SpawnRanks(world_rank=tp_rank, gpu_id=gpu_id))
         except Exception as _e:
             print(f'[audio8-tts] runtime_context setup warning: {_e}')
         super().__init__(**{k: v for k, v in _mr_kwargs.items() if k in _mr_params})'''
