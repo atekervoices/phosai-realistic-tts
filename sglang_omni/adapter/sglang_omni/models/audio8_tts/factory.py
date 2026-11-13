@@ -94,8 +94,12 @@ def create_audio8_engine(
     model_worker.model_runner.model.setup_audio8_decode(
         server_args.max_running_requests
     )
-    object.__setattr__(server_args, disable_attr, not want_cuda_graph)
     if want_cuda_graph:
+        try:
+            setattr(server_args, disable_attr, False)
+        except AttributeError:
+            if hasattr(server_args, "__dict__"):
+                server_args.__dict__[disable_attr] = False
         model_worker.model_runner.init_device_graphs()
 
     request_pool, kv_allocator = model_worker.get_memory_pool()
