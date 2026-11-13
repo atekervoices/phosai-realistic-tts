@@ -57,6 +57,21 @@ def _audio8_fast_attention_with_cache(
 
     batch = query.shape[0]
     positions = cache_positions.to(torch.long)
+    if batch == 1:
+        pos = int(positions[0].item())
+        key_cache[0, pos] = key[0, 0]
+        value_cache[0, pos] = value[0, 0]
+        k_slice = key_cache[:, : pos + 1].transpose(1, 2)
+        v_slice = value_cache[:, : pos + 1].transpose(1, 2)
+        output = F.scaled_dot_product_attention(
+            query.transpose(1, 2),
+            k_slice,
+            v_slice,
+            is_causal=False,
+            enable_gqa=True,
+        )
+        return output.transpose(1, 2).contiguous()
+
     batch_indices = torch.arange(batch, device=query.device)
     key_cache[batch_indices, positions] = key[:, 0]
     value_cache[batch_indices, positions] = value[:, 0]
@@ -260,7 +275,7 @@ def _rope(length: int, head_dim: int, base: float, device: torch.device) -> Tens
     )
     phases = torch.outer(torch.arange(length, device=device), frequencies)
     values = torch.polar(torch.ones_like(phases), phases)
-    return torch.stack((values.real, values.imag), dim=-1).to(torch.bfloat16)
+    return torch.stack((values.real, values.imag), dim=-1).float()
 
 
 def _apply_rope(value: Tensor, rope_values: Tensor) -> Tensor:

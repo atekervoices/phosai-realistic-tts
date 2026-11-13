@@ -207,8 +207,8 @@ class Audio8StreamingVocoderExecutor(Executor):
 
             await output_queue.put(None)
 
-            full_audio = await self._decode_frames(frames, 0, len(frames))
-            payload.data = self._audio_payload(full_audio)
+            # Chunks were already decoded and emitted progressively during the stream.
+            # Do NOT re-decode the full sequence from 0 to len(frames), which allocates 2.77+ GB and causes CUDA OOM!
             prompt_tokens = len(state.input_ids) if state.input_ids is not None else 0
             payload.data["usage"] = {
                 "prompt_tokens": prompt_tokens,
