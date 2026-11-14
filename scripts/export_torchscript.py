@@ -50,7 +50,7 @@ def sanitize_dirname(name: str) -> str:
 
 def get_persistent_cache_dir(fingerprint: str) -> Path:
     hf_home = Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface"))
-    cache_dir = hf_home / f"audio8_ts_cache_{fingerprint}_v1"
+    cache_dir = hf_home / f"audio8_ts_cache_{fingerprint}_v2"
     cache_dir.mkdir(parents=True, exist_ok=True)
     return cache_dir
 
@@ -58,6 +58,7 @@ def get_persistent_cache_dir(fingerprint: str) -> Path:
 def get_voice_cache_dirs(fingerprint: str) -> List[Path]:
     hf_home = Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface"))
     return [
+        hf_home / f"audio8_ts_cache_{fingerprint}_v2" / "voices",
         hf_home / f"audio8_ts_cache_{fingerprint}_v1" / "voices",
         hf_home / f"audio8_build_cache_{fingerprint}_v5" / "voices",
         hf_home / f"audio8_build_cache_{fingerprint}_v2" / "voices",
@@ -114,16 +115,76 @@ def patch_source_files(src_path: Path) -> None:
                     ),
                     content,
                 )
-            if "class ArkttsConvNeXtBlock" in content and "min_len" not in content:
-                content = content.replace(
-                    "return residual + x",
-                    "min_len = min(residual.shape[-1], x.shape[-1])\n        return residual[..., :min_len] + x[..., :min_len]",
+            needs_res_helper = False
+            needs_match_helper = False
+            if "class ArkttsConvNeXtBlock" in content:
+                if "return residual + x" in content:
+                    content = content.replace(
+                        "return residual + x",
+                        "return _arktts_safe_residual_add(residual, x)",
+                    )
+                    needs_res_helper = True
+                elif "min_len = min(residual.shape[-1], x.shape[-1])" in content:
+                    content = re.sub(
+                        r"min_len = min\(residual\.shape\[-1\], x\.shape\[-1\]\)\r?\n\s*return residual\[\.\.\., :min_len\] \+ x\[\.\.\., :min_len\]",
+                        "return _arktts_safe_residual_add(residual, x)",
+                        content,
+                    )
+                    needs_res_helper = True
+            if "class ArkttsResidualUnit" in content:
+                if "difference = x.shape[-1] - output.shape[-1]" in content:
+                    content = re.sub(
+                        r"([ \t]*)difference = x\.shape\[-1\] - output\.shape\[-1\]\r?\n\s*if difference > 0:\r?\n\s*x = x\[\.\.\., :-difference\]\r?\n\s*return x \+ output",
+                        r"\1return _arktts_safe_residual_add(x, output)",
+                        content,
+                    )
+                    needs_res_helper = True
+                elif "min_len = min(x.shape[-1], output.shape[-1])" in content:
+                    content = re.sub(
+                        r"min_len = min\(x\.shape\[-1\], output\.shape\[-1\]\)\r?\n\s*return x\[\.\.\., :min_len\] \+ output\[\.\.\., :min_len\]",
+                        "return _arktts_safe_residual_add(x, output)",
+                        content,
+                    )
+                    needs_res_helper = True
+            if "class ArkttsDownsampleQuantizer" in content and "difference = original_length - z.shape[-1]" in content:
+                content = re.sub(
+                    r"([ \t]*)difference = original_length - z\.shape\[-1\]\r?\n\s*if difference > 0:\r?\n\s*z = F\.pad\(z, \(difference, 0\)\)\r?\n\s*elif difference < 0:\r?\n\s*z = z\[\.\.\., -difference:\]",
+                    r"\1z = _arktts_match_length(z, original_length)",
+                    content,
                 )
-            if "class ArkttsResidualUnit" in content and "min_len" not in content:
-                content = content.replace(
-                    "return x + output",
-                    "min_len = min(x.shape[-1], output.shape[-1])\n        return x[..., :min_len] + output[..., :min_len]",
+                needs_match_helper = True
+            if needs_res_helper and "def _arktts_safe_residual_add" not in content:
+                helper_code = (
+                    "\n@torch.jit.script\n"
+                    "def _arktts_safe_residual_add(a: Tensor, b: Tensor) -> Tensor:\n"
+                    "    la = a.shape[-1]\n"
+                    "    lb = b.shape[-1]\n"
+                    "    m = la if la < lb else lb\n"
+                    "    return a[..., :m] + b[..., :m]\n"
                 )
+                if "class ArkttsResidualUnit" in content:
+                    content = content.replace("class ArkttsResidualUnit", helper_code + "\n\nclass ArkttsResidualUnit", 1)
+                else:
+                    content = content + helper_code
+            if needs_match_helper and "def _arktts_match_length" not in content:
+                match_code = (
+                    "\n@torch.jit.script\n"
+                    "def _arktts_match_length(z: Tensor, target_len: int) -> Tensor:\n"
+                    "    cur = z.shape[-1]\n"
+                    "    if target_len > cur:\n"
+                    "        return F.pad(z, (target_len - cur, 0))\n"
+                    "    if cur > target_len:\n"
+                    "        return z[..., cur - target_len :]\n"
+                    "    return z\n"
+                )
+                if "class ArkttsDownsampleQuantizer" in content:
+                    content = content.replace(
+                        "class ArkttsDownsampleQuantizer",
+                        match_code + "\n\nclass ArkttsDownsampleQuantizer",
+                        1,
+                    )
+                else:
+                    content = content + match_code
             if "def _rope(" in content:
                 content = re.sub(
                     r"def _rope\(length: int, head_dim: int, base: float, device=None\) -> Tensor:[\s\S]*?return torch\.stack\(\(values\.real, values\.imag\), dim=-1\)\.to\(torch\.bfloat16\)",
@@ -162,9 +223,13 @@ def patch_source_files(src_path: Path) -> None:
                 content = content.replace("torch.polar(", "_safe_polar(")
 
             if "from __future__" in content:
-                future_lines = [l for l in content.splitlines() if l.startswith("from __future__")]
-                other_lines = [l for l in content.splitlines() if not l.startswith("from __future__")]
-                content = "\n".join(future_lines + [""] + other_lines)
+                lines = content.splitlines()
+                future_lines = [l for l in lines if l.startswith("from __future__")]
+                if len(lines) < len(future_lines) or lines[: len(future_lines)] != future_lines:
+                    other_lines = [l for l in lines if not l.startswith("from __future__")]
+                    while other_lines and not other_lines[0].strip():
+                        other_lines.pop(0)
+                    content = "\n".join(future_lines + [""] + other_lines) + "\n"
             if content != orig:
                 print(f"Patched compatibility fixes in {py_file.name}.")
                 py_file.write_text(content, encoding="utf-8")
@@ -254,7 +319,7 @@ def rewrite_cpu_device_constants(script_mod: torch.jit.ScriptModule) -> int:
             for n in list(blk.nodes()):
                 for inner in n.blocks():
                     walk_block(inner)
-                if n.kind() == "prim::Constant" and str(n.output().type()) == "Device":
+                if n.kind() == "prim::Constant" and n.outputsSize() == 1 and str(n.output().type()) == "Device":
                     if "cpu" in str(n).lower():
                         n.output().replaceAllUsesWith(get_dev_out())
                         n.destroy()
@@ -266,20 +331,41 @@ def rewrite_cpu_device_constants(script_mod: torch.jit.ScriptModule) -> int:
 
     for sub in script_mod.modules():
         if hasattr(sub, "_c"):
-            for method_name in ["forward"]:
-                if sub._c._has_method(method_name):
-                    g = sub._c._get_method(method_name).graph
-                    anchor = next((inp for inp in g.inputs() if "Tensor" in str(inp.type())), None)
-                    if anchor is not None:
-                        patch_graph(g, anchor)
+            for method_name in sub._c._method_names():
+                g = sub._c._get_method(method_name).graph
+                anchor = next((inp for inp in g.inputs() if "Tensor" in str(inp.type())), None)
+                if anchor is not None:
+                    patch_graph(g, anchor)
     return replaced_count
 
 
-def assert_no_cpu_device_constants(script_mod: torch.jit.ScriptModule, label: str) -> None:
-    graph_str = str(script_mod.inlined_graph)
-    if 'prim::Constant[value="cpu"]' in graph_str:
+def assert_no_cpu_device_constants(
+    script_mod: torch.jit.ScriptModule,
+    pt_path: Path,
+    label: str,
+) -> None:
+    """
+    Verify both every submodule method graph and the reloaded on-disk `.pt` module's
+    `inlined_graph` (which avoids PyTorch's stale pre-save `inlined_graph` cache on traced
+    submodules) contain zero hardcoded CPU `Device` constants.
+    """
+    for name, sub in script_mod.named_modules():
+        if hasattr(sub, "_c"):
+            for method_name in sub._c._method_names():
+                mg = str(sub._c._get_method(method_name).graph)
+                if 'prim::Constant[value="cpu"]' in mg:
+                    if pt_path.is_file():
+                        pt_path.unlink()
+                    raise RuntimeError(
+                        f"Exported TorchScript module '{label}' submodule '{name}.{method_name}' still contains hardcoded CPU device constant!"
+                    )
+
+    reloaded = torch.jit.load(str(pt_path), map_location="cpu").eval()
+    if 'prim::Constant[value="cpu"]' in str(reloaded.inlined_graph):
+        if pt_path.is_file():
+            pt_path.unlink()
         raise RuntimeError(
-            f"Exported TorchScript module '{label}' still contains hardcoded CPU device constant!"
+            f"Saved TorchScript module '{label}' ({pt_path.name}) still contains hardcoded CPU device constant!"
         )
 
 
@@ -317,6 +403,16 @@ def load_arktts_codec(src_path: Path, device: str = "cpu") -> nn.Module:
     }
     codec.load_state_dict(state, strict=True, assign=True)
     return codec.eval().to(device=device, dtype=torch.float32)
+
+
+def compute_rope_cis(length: int, head_dim: int, base: float) -> torch.Tensor:
+    """Compute RoPE `[length, head_dim // 2, 2]` cos/sin table cleanly in float32."""
+    frequencies = 1.0 / (
+        base ** (torch.arange(0, head_dim, 2, dtype=torch.float32)[: head_dim // 2] / float(head_dim))
+    )
+    t = torch.arange(length, dtype=torch.float32)
+    phases = torch.outer(t, frequencies)
+    return torch.stack((torch.cos(phases), torch.sin(phases)), dim=-1)
 
 
 @torch.jit.script
@@ -463,7 +559,9 @@ class SlowARTorchWrapper(nn.Module):
 
         offsets = torch.arange(self.num_codebooks, dtype=torch.long) * self.codebook_size
         self.register_buffer("codebook_offsets", offsets.view(1, self.num_codebooks, 1))
-        self.register_buffer("freqs_cis", model.freqs_cis.detach().float().clone())
+        rope_len = int(getattr(cfg, "max_seq_len", model.freqs_cis.shape[0]))
+        rope_base = float(getattr(cfg, "rope_base", getattr(cfg, "rope_theta", 10000.0)))
+        self.register_buffer("freqs_cis", compute_rope_cis(rope_len, self.head_dim, rope_base))
 
         head_layer = (
             getattr(model, "output", None)
@@ -574,7 +672,11 @@ class FastARCoreStepWrapper(nn.Module):
         self.fast_layers = model.fast_layers
         self.fast_norm = model.fast_norm
         self.fast_output = model.fast_output
-        self.register_buffer("fast_freqs_cis", model.fast_freqs_cis.detach().float().clone())
+        fast_rope_len = int(getattr(cfg, "num_codebooks", model.fast_freqs_cis.shape[0]))
+        rope_base = float(getattr(cfg, "rope_base", getattr(cfg, "rope_theta", 10000.0)))
+        self.register_buffer(
+            "fast_freqs_cis", compute_rope_cis(fast_rope_len, self.head_dim, rope_base)
+        )
 
     def forward(
         self,
@@ -714,13 +816,30 @@ def _waveform_length_tensor(wav_2d: torch.Tensor) -> torch.Tensor:
     return torch.full((1,), wav_2d.shape[-1], dtype=torch.int64, device=wav_2d.device)
 
 
+@torch.jit.script
+def _pad_audio_for_codec(wav: torch.Tensor, frame_length: int) -> torch.Tensor:
+    orig = wav.shape[-1]
+    rem = orig % frame_length
+    if rem != 0:
+        pad = frame_length - rem
+        wav = F.pad(wav, (0, pad))
+    return wav
+
+
 class CodecEncoderTorchWrapper(nn.Module):
-    def __init__(self, codec: nn.Module) -> None:
+    def __init__(self, codec: nn.Module, frame_length: int = 2048) -> None:
         super().__init__()
         self.codec = codec
+        self.frame_length = int(frame_length)
 
     def forward(self, audio: torch.Tensor) -> torch.Tensor:
-        wav_2d = audio.squeeze(1) if audio.ndim == 3 else audio
+        wav_3d = audio.unsqueeze(1) if audio.ndim == 2 else audio
+        wav_padded = _pad_audio_for_codec(wav_3d, self.frame_length)
+        if hasattr(self.codec, "encoder") and hasattr(self.codec, "quantizer"):
+            encoded = self.codec.encoder(wav_padded)
+            _, indices = self.codec.quantizer(encoded)
+            return indices.to(torch.int64)
+        wav_2d = wav_padded.squeeze(1)
         lengths = _waveform_length_tensor(wav_2d)
         encode_method = getattr(self.codec, "encode", None)
         if hasattr(encode_method, "__wrapped__"):
@@ -923,8 +1042,8 @@ def run_stage_voices_and_codec(
         with torch.no_grad():
             traced = torch.jit.trace(dec_wrapper, (dummy_vq,))
         rewrite_cpu_device_constants(traced)
-        assert_no_cpu_device_constants(traced, "codec_decoder_fp32")
         torch.jit.save(traced, str(dec_fp32_path))
+        assert_no_cpu_device_constants(traced, dec_fp32_path, "codec_decoder_fp32")
         validate_codec_decoder_pt(dec_fp32_path, num_cb)
         shutil.copy2(dec_fp32_path, cached_dec_fp32)
         del traced, dec_wrapper
@@ -938,21 +1057,29 @@ def run_stage_voices_and_codec(
         shutil.copy2(cached_enc, enc_fp32_path)
     else:
         try:
-            enc_wrapper = CodecEncoderTorchWrapper(codec_fp32).eval()
+            enc_wrapper = CodecEncoderTorchWrapper(codec_fp32, frame_length=hop_length).eval()
             dummy_wav = torch.zeros((1, 1, hop_length * 8), dtype=torch.float32)
             with torch.no_grad():
                 traced_enc = torch.jit.trace(enc_wrapper, (dummy_wav,))
             rewrite_cpu_device_constants(traced_enc)
-            assert_no_cpu_device_constants(traced_enc, "codec_encoder_fp32")
             torch.jit.save(traced_enc, str(enc_fp32_path))
-            # Verify dynamic length
+            assert_no_cpu_device_constants(traced_enc, enc_fp32_path, "codec_encoder_fp32")
+            # Verify dynamic aligned & unaligned lengths
             loaded_enc = torch.jit.load(str(enc_fp32_path), map_location="cpu").eval()
             with torch.no_grad():
-                res = loaded_enc(torch.zeros((1, 1, hop_length * 12), dtype=torch.float32))
-                print(f"  Validated {enc_fp32_path.name} -> {tuple(res.shape)} ({res.dtype})")
+                res_aligned = loaded_enc(torch.zeros((1, 1, hop_length * 12), dtype=torch.float32))
+                res_unaligned = loaded_enc(torch.zeros((1, 1, hop_length * 3 + 500), dtype=torch.float32))
+                if (res_aligned < 0).any() or (res_unaligned < 0).any():
+                    raise RuntimeError("Codec encoder produced negative padding indices!")
+                print(
+                    f"  Validated {enc_fp32_path.name} -> "
+                    f"aligned={tuple(res_aligned.shape)}, unaligned={tuple(res_unaligned.shape)} ({res_aligned.dtype})"
+                )
             shutil.copy2(enc_fp32_path, cached_enc)
             del traced_enc, enc_wrapper, loaded_enc
         except Exception as exc:
+            if enc_fp32_path.is_file():
+                enc_fp32_path.unlink()
             print(f"[Warn] Optional codec_encoder_fp32.pt export skipped ({exc}); pre-encoded voices still work.")
 
     # Pre-encode voices using the FP32 codec BEFORE converting/unloading
@@ -978,6 +1105,11 @@ def run_stage_voices_and_codec(
         if cached_dec_fp16.is_file():
             print(f"Restoring {dec_fp16_path.name} from cache...")
             shutil.copy2(cached_dec_fp16, dec_fp16_path)
+        elif not torch.cuda.is_available():
+            print(
+                "[Info] Skipping codec_decoder_fp16 trace on CPU build host "
+                "(CPU Half Conv1d is unsupported/slow); keeping codec_decoder_fp32.pt."
+            )
         else:
             try:
                 codec_fp16 = load_arktts_codec(src_path, device="cpu")
@@ -987,8 +1119,8 @@ def run_stage_voices_and_codec(
                 with torch.no_grad():
                     traced_16 = torch.jit.trace(dec_wrapper_16, (dummy_vq,))
                 rewrite_cpu_device_constants(traced_16)
-                assert_no_cpu_device_constants(traced_16, "codec_decoder_fp16")
                 torch.jit.save(traced_16, str(dec_fp16_path))
+                assert_no_cpu_device_constants(traced_16, dec_fp16_path, "codec_decoder_fp16")
                 validate_codec_decoder_pt(dec_fp16_path, num_cb)
                 shutil.copy2(dec_fp16_path, cached_dec_fp16)
                 del traced_16, dec_wrapper_16, codec_fp16
@@ -1058,10 +1190,10 @@ def export_fast_ar_for_dtype(
     ).eval()
     scripted_loop = torch.jit.script(loop_wrapper)
     rewrite_cpu_device_constants(scripted_loop)
-    assert_no_cpu_device_constants(scripted_loop, label)
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     torch.jit.save(scripted_loop, str(out_path))
+    assert_no_cpu_device_constants(scripted_loop, out_path, label)
 
     # Validate load + execution
     loaded = torch.jit.load(str(out_path), map_location="cpu").eval()
@@ -1148,10 +1280,10 @@ def export_slow_ar_for_dtype(
         )
 
     rewrite_cpu_device_constants(traced)
-    assert_no_cpu_device_constants(traced, label)
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     torch.jit.save(traced, str(out_path))
+    assert_no_cpu_device_constants(traced, out_path, label)
 
     # Validate reload with BOTH prefill (seq_len=9) and decode (seq_len=1)
     loaded = torch.jit.load(str(out_path), map_location="cpu").eval()
