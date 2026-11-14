@@ -46,6 +46,9 @@ def _load_codec(model_path: str, device: str) -> Any:
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
+    if hasattr(module, "_rope"):
+        _orig_rope = module._rope
+        module._rope = lambda *a, **kw: _orig_rope(*a, **kw).float()
     codec = module.ArkttsCodec(_load_config(model_path))
     state = torch.load(
         model_dir / "codec.pth",
@@ -68,7 +71,8 @@ def _load_codec(model_path: str, device: str) -> Any:
     }
     codec.load_state_dict(state, strict=True, assign=True)
     if str(device).startswith("cuda"):
-        dtype = torch.bfloat16 if (torch.cuda.is_available() and torch.cuda.is_bf16_supported()) else torch.float16
+        cap = torch.cuda.get_device_capability() if torch.cuda.is_available() else (0, 0)
+        dtype = torch.float16 if cap < (8, 0) else torch.bfloat16
     else:
         dtype = torch.float32
     return codec.eval().to(device=device, dtype=dtype)
@@ -278,15 +282,29 @@ def create_vocoder_executor(
         dtype=torch.long,
     )
     with torch.inference_mode():
-        codec.decode(warmup_codes)
-    resolved_chunk_frames = chunk_frames if chunk_frames is not None else int(
-        os.getenv("AUDIO8_TTS_STREAM_CHUNK_FRAMES", "6")
+        try:
+            codec.decode(warmup_codes)
+        except Exception as exc:
+            logger.warning("Codec warmup in %s failed (%s), falling back to float32", next(codec.parameters()).dtype, exc)
+            codec = codec.to(device=device, dtype=torch.float32)
+            codec.decode(warmup_codes)
+    env_chunk = os.getenv("AUDIO8_TTS_STREAM_CHUNK_FRAMES")
+    resolved_chunk_frames = (
+        int(env_chunk)
+        if env_chunk is not None
+        else (chunk_frames if chunk_frames is not None else 6)
     )
-    resolved_context_frames = context_frames if context_frames is not None else int(
-        os.getenv("AUDIO8_TTS_STREAM_CONTEXT_FRAMES", "48")
+    env_ctx = os.getenv("AUDIO8_TTS_STREAM_CONTEXT_FRAMES")
+    resolved_context_frames = (
+        int(env_ctx)
+        if env_ctx is not None
+        else (context_frames if context_frames is not None else 16)
     )
-    resolved_guard_frames = guard_frames if guard_frames is not None else int(
-        os.getenv("AUDIO8_TTS_STREAM_GUARD_FRAMES", "1")
+    env_guard = os.getenv("AUDIO8_TTS_STREAM_GUARD_FRAMES")
+    resolved_guard_frames = (
+        int(env_guard)
+        if env_guard is not None
+        else (guard_frames if guard_frames is not None else 1)
     )
     return Audio8StreamingVocoderExecutor(
         codec,

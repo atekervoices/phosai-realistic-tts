@@ -24,12 +24,17 @@ def build_tts_request(
         max_new_tokens=state.max_new_tokens,
         temperature=state.temperature,
     )
+    vocab_size = max(
+        int(getattr(tokenizer, "vocab_size", 0) or 0),
+        int(state.codebook_size) + 151678,
+        155776,
+    )
     req = Req(
         rid=request_id,
         origin_input_text="",
         origin_input_ids=input_ids,
         sampling_params=sampling_params,
-        vocab_size=tokenizer.vocab_size,
+        vocab_size=vocab_size,
     )
     return Audio8SGLangRequestData(
         input_ids=torch.tensor(input_ids, dtype=torch.long),

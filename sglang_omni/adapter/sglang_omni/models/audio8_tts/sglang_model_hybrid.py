@@ -354,14 +354,15 @@ class Audio8HybridSGLangModel(nn.Module):
 
     def _run_audio8_fast_position(self, hidden: Tensor, position: int) -> Tensor:
         batch = hidden.shape[0]
+        rope_values = self._fast_rope[position : position + 1]
         self._audio8_fast_position.fill_(position)
-        rope_values = self._fast_rope[self._audio8_fast_position]
         cache_positions = self._audio8_fast_position.expand(batch).to(torch.int32)
         for layer in self.fast_layers:
             hidden = layer.forward_audio8_cached(
                 hidden,
                 rope_values,
                 cache_positions,
+                position=position,
             )
         return self.fast_output(self.fast_norm(hidden))[:, -1]
 

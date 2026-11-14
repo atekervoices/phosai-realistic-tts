@@ -50,6 +50,28 @@ class Audio8SGLangRequestData(SGLangARRequestData):
     _slow_cache: Any | None = None
 
 
+def _mark_req_finished(
+    req: Any,
+    *,
+    eos_token_id: int | None = None,
+    length: int | None = None,
+) -> None:
+    if getattr(req, "finished_reason", None) is not None:
+        return
+    try:
+        from sglang.srt.managers.schedule_batch import (
+            FINISH_LENGTH,
+            FINISH_MATCHED_TOKEN,
+        )
+
+        if eos_token_id is not None:
+            req.finished_reason = FINISH_MATCHED_TOKEN(matched=eos_token_id)
+        else:
+            req.finished_reason = FINISH_LENGTH(length=length or 0)
+    except Exception:
+        req.finished_reason = True
+
+
 class Audio8IterationController:
     def __init__(self, tree_cache: Any, eos_token_id: int, max_new_tokens: int) -> None:
         self.tree_cache = tree_cache
@@ -64,14 +86,20 @@ class Audio8IterationController:
             output.data = None
             req.is_chunked = is_chunked - 1
             return
-        codes = output.data.codes.clone()
+        codes = output.data.codes
+        codes = codes.cpu() if codes.is_cuda else codes.clone()
         semantic = int(codes[0, -1].item())
+        max_tokens = data.max_new_tokens or self.max_new_tokens
         if semantic != self.eos_token_id:
             # HF generation does not send the EOS step to the waveform codec.
             if data.output_codes:
                 data._previous_semantic_tokens.append(semantic)
             data.output_codes.append(codes)
             data._last_codebook_values = codes[1:, 0].clone()
+            if len(data.output_codes) >= max_tokens:
+                _mark_req_finished(req, length=len(data.output_codes))
+        else:
+            _mark_req_finished(req, eos_token_id=self.eos_token_id)
         req.output_ids.append(semantic)
         if not req.finished() and getattr(req, "decode_batch_idx", 0) == 0:
             if hasattr(self.tree_cache, "cache_unfinished_req"):
@@ -85,8 +113,13 @@ class Audio8IterationController:
             return False
         semantic = int(output.data.codes[0, -1].item())
         if semantic == self.eos_token_id:
+            _mark_req_finished(data.req, eos_token_id=self.eos_token_id)
             return True
-        return len(data.output_codes) >= (data.max_new_tokens or self.max_new_tokens)
+        max_tokens = data.max_new_tokens or self.max_new_tokens
+        if len(data.output_codes) >= max_tokens:
+            _mark_req_finished(data.req, length=len(data.output_codes))
+            return True
+        return False
 
 
 class Audio8ModelRunner:
@@ -98,13 +131,18 @@ class Audio8ModelRunner:
         self,
         model_worker_batch: Any,
         scheduler_output: SchedulerOutput,
+        schedule_batch: Any = None,
     ) -> None:
         model = self.model_worker.model_runner.model
         device = getattr(model, "device", None) or self.model_worker.model_runner.device
         input_ids = getattr(model_worker_batch, "input_ids", None)
+        if input_ids is None and schedule_batch is not None:
+            input_ids = getattr(schedule_batch, "input_ids", None)
         if input_ids is None and hasattr(model_worker_batch, "prefill_input_ids_cpu") and model_worker_batch.prefill_input_ids_cpu is not None:
             input_ids = model_worker_batch.prefill_input_ids_cpu.to(device=device, non_blocking=True)
             model_worker_batch.input_ids = input_ids
+            if schedule_batch is not None:
+                schedule_batch.input_ids = input_ids
         if input_ids is None:
             return
         device = input_ids.device
@@ -139,7 +177,10 @@ class Audio8ModelRunner:
                     indices = mask_slice.nonzero(as_tuple=True)[0] + offset
                     text_embeds[indices] += codebook_sum.to(text_embeds.dtype)
             offset += request_length
-        model_worker_batch.input_embeds = text_embeds.to(dtype=model.embed_tokens.weight.dtype)
+        embeds = text_embeds.to(dtype=model.embed_tokens.weight.dtype)
+        model_worker_batch.input_embeds = embeds
+        if schedule_batch is not None:
+            schedule_batch.input_embeds = embeds
 
     def _update_runtime_buffers(
         self,
@@ -147,24 +188,35 @@ class Audio8ModelRunner:
         scheduler_output: SchedulerOutput,
         *,
         is_prefill: bool,
+        schedule_batch: Any = None,
     ) -> None:
         model = self.model_worker.model_runner.model
         device = getattr(model, "device", None) or self.model_worker.model_runner.device
         batch = len(scheduler_output.requests)
         model._previous_valid[:batch].zero_()
+        sem_begin = int(model.config.semantic_begin_id)
+        sem_end = int(model.config.semantic_end_id)
+        semantic_flags: list[bool] = []
         if not is_prefill:
+            last_ids = [int(scheduled.data.req.output_ids[-1]) for scheduled in scheduler_output.requests]
+            semantic_flags = [sem_begin <= tid <= sem_end for tid in last_ids]
             input_ids = torch.tensor(
-                [scheduled.data.req.output_ids[-1] for scheduled in scheduler_output.requests],
+                last_ids,
                 dtype=torch.long,
                 device=device,
             )
             model_worker_batch.input_ids = input_ids
-            semantic_mask = (input_ids >= model.config.semantic_begin_id) & (
-                input_ids <= model.config.semantic_end_id
+            if schedule_batch is not None:
+                schedule_batch.input_ids = input_ids
+            semantic_mask = torch.tensor(
+                semantic_flags,
+                dtype=torch.bool,
+                device=device,
             )
             model._vq_mask[:batch].copy_(semantic_mask)
         else:
             model._vq_mask[:batch].zero_()
+            semantic_flags = [False] * batch
 
         for index, scheduled in enumerate(scheduler_output.requests):
             data: Audio8SGLangRequestData = scheduled.data
@@ -187,13 +239,13 @@ class Audio8ModelRunner:
             if (
                 not is_prefill
                 and data._last_codebook_values is not None
-                and bool(model._vq_mask[index].item())
+                and semantic_flags[index]
             ):
-                model._vq_codes[index].copy_(data._last_codebook_values)
+                model._vq_codes[index].copy_(data._last_codebook_values.to(device=device, non_blocking=True))
             elif (
                 not is_prefill
                 and data._last_codebook_values is None
-                and bool(model._vq_mask[index].item())
+                and semantic_flags[index]
             ):
                 logger.warning(
                     "AUDIO8-STALE-VQ index=%d rid=%s mask=True last_codebook=None",
@@ -211,6 +263,8 @@ class Audio8ModelRunner:
     def _build_outputs(self, scheduler_output: SchedulerOutput) -> dict[str, RequestOutput]:
         model = self.model_worker.model_runner.model
         outputs: dict[str, RequestOutput] = {}
+        batch = len(scheduler_output.requests)
+        output_codes_cpu = model._output_codes[:batch].cpu()
         for index, scheduled in enumerate(scheduler_output.requests):
             data: Audio8SGLangRequestData = scheduled.data
             is_chunked = getattr(data.req, "is_chunked", 0) > 0
@@ -219,7 +273,7 @@ class Audio8ModelRunner:
                 data=(
                     None
                     if is_chunked
-                    else Audio8StepOutput(model._output_codes[index].unsqueeze(-1))
+                    else Audio8StepOutput(output_codes_cpu[index].unsqueeze(-1))
                 ),
                 finished=False,
             )
@@ -229,11 +283,18 @@ class Audio8ModelRunner:
         from sglang.srt.model_executor.forward_batch_info import ForwardBatch
 
         schedule_batch = scheduler_output.batch_data
+        is_prefill = schedule_batch.forward_mode.is_extend()
+        if not is_prefill and len(scheduler_output.requests) != len(schedule_batch.reqs):
+            active_reqs = {scheduled.data.req for scheduled in scheduler_output.requests}
+            for r in schedule_batch.reqs:
+                if r not in active_reqs:
+                    _mark_req_finished(r)
+            if hasattr(schedule_batch, "filter_batch"):
+                schedule_batch.filter_batch()
         if hasattr(schedule_batch, "get_model_worker_batch"):
             worker_batch = schedule_batch.get_model_worker_batch()
         else:
             worker_batch = schedule_batch
-        is_prefill = schedule_batch.forward_mode.is_extend()
         model = self.model_worker.model_runner.model
         if len(scheduler_output.requests) != len(schedule_batch.reqs):
             logger.warning(
@@ -247,9 +308,14 @@ class Audio8ModelRunner:
             worker_batch,
             scheduler_output,
             is_prefill=is_prefill,
+            schedule_batch=schedule_batch,
         )
         if is_prefill:
-            self._inject_reference_embeds(worker_batch, scheduler_output)
+            self._inject_reference_embeds(
+                worker_batch,
+                scheduler_output,
+                schedule_batch=schedule_batch,
+            )
         else:
             if hasattr(worker_batch, "input_embeds"):
                 worker_batch.input_embeds = None
@@ -281,9 +347,9 @@ class Audio8ModelRunner:
                 device=device,
             )
         self.batch_planner.record_last_batch(schedule_batch)
-        outputs = self._build_outputs(scheduler_output)
         batch = len(scheduler_output.requests)
         schedule_batch.output_ids = model._output_semantic_ids[:batch].clone()
+        outputs = self._build_outputs(scheduler_output)
         request_ids = [request.request_id for request in scheduler_output.requests]
         return ModelRunnerOutput(
             outputs=outputs,
@@ -299,6 +365,7 @@ class Audio8ResourceManager(SGLangResourceManager):
 
     def free(self, request: SchedulerRequest) -> None:
         data: Audio8SGLangRequestData = request.data
+        _mark_req_finished(data.req)
         self._freed_since_compact += 1
         try:
             release_kv_cache(data.req, self.tree_cache, checkpoint=False)

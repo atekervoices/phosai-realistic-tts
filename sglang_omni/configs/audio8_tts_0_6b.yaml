@@ -33,7 +33,7 @@ stages:
       args:
         device: cuda:0
         chunk_frames: 6
-        context_frames: 48
+        context_frames: 16
     get_next: sglang_omni.models.audio8_tts.pipeline.next_stage.vocoder_next
     relay:
       device: cpu

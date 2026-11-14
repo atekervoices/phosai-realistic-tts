@@ -57,21 +57,6 @@ def _audio8_fast_attention_with_cache(
 
     batch = query.shape[0]
     positions = cache_positions.to(torch.long)
-    if batch == 1:
-        pos = int(positions[0].item())
-        key_cache[0, pos] = key[0, 0]
-        value_cache[0, pos] = value[0, 0]
-        k_slice = key_cache[:, : pos + 1].transpose(1, 2)
-        v_slice = value_cache[:, : pos + 1].transpose(1, 2)
-        output = F.scaled_dot_product_attention(
-            query.transpose(1, 2),
-            k_slice,
-            v_slice,
-            is_causal=False,
-            enable_gqa=True,
-        )
-        return output.transpose(1, 2).contiguous()
-
     batch_indices = torch.arange(batch, device=query.device)
     key_cache[batch_indices, positions] = key[:, 0]
     value_cache[batch_indices, positions] = value[:, 0]
@@ -371,6 +356,7 @@ class FastAttention(nn.Module):
         value: Tensor,
         rope_values: Tensor,
         cache_positions: Tensor,
+        position: Optional[int] = None,
     ) -> Tensor:
         batch, length, _ = value.shape
         if length != 1:
@@ -389,14 +375,27 @@ class FastAttention(nn.Module):
         if self.audio8_cache is None:
             raise RuntimeError("Audio8 fast KV cache has not been initialized")
         key_cache, value_cache = self.audio8_cache.for_batch(batch)
-        output = _audio8_fast_attention_with_cache(
-            q,
-            key_cache,
-            value_cache,
-            k,
-            v,
-            cache_positions,
-        )
+        if position is not None and resolve_attention_backend() != "fa3":
+            key_cache[:, position : position + 1] = k
+            value_cache[:, position : position + 1] = v
+            k_slice = key_cache[:, : position + 1].transpose(1, 2)
+            v_slice = value_cache[:, : position + 1].transpose(1, 2)
+            output = F.scaled_dot_product_attention(
+                q.transpose(1, 2),
+                k_slice,
+                v_slice,
+                is_causal=False,
+                enable_gqa=True,
+            ).transpose(1, 2)
+        else:
+            output = _audio8_fast_attention_with_cache(
+                q,
+                key_cache,
+                value_cache,
+                k,
+                v,
+                cache_positions,
+            )
         return self.wo(output.contiguous().view(batch, length, q_size))
 
 
@@ -450,11 +449,13 @@ class FastDecoderLayer(nn.Module):
         value: Tensor,
         rope_values: Tensor,
         cache_positions: Tensor,
+        position: Optional[int] = None,
     ) -> Tensor:
         hidden = value + self.attention.forward_audio8_cached(
             self.attention_norm(value),
             rope_values,
             cache_positions,
+            position=position,
         )
         return hidden + self.feed_forward(self.ffn_norm(hidden))
 
@@ -701,14 +702,18 @@ class Audio8SGLangModel(nn.Module):
 
     def _run_audio8_fast_position(self, hidden: Tensor, position: int) -> Tensor:
         batch = hidden.shape[0]
-        self._audio8_fast_position.fill_(position)
-        rope_values = self._fast_rope[self._audio8_fast_position]
-        cache_positions = self._audio8_fast_position.expand(batch).to(torch.int32)
+        rope_values = self._fast_rope[position : position + 1]
+        if resolve_attention_backend() == "fa3":
+            self._audio8_fast_position.fill_(position)
+            cache_positions = self._audio8_fast_position.expand(batch).to(torch.int32)
+        else:
+            cache_positions = self._audio8_fast_position
         for layer in self.fast_layers:
             hidden = layer.forward_audio8_cached(
                 hidden,
                 rope_values,
                 cache_positions,
+                position=position,
             )
         return self.fast_output(self.fast_norm(hidden))[:, -1]
 

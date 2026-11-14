@@ -40,6 +40,11 @@ class Audio8StreamingVocoderExecutor(Executor):
         self._output_queues: dict[str, asyncio.Queue[dict[str, Any] | None]] = {}
         self._aborted: set[str] = set()
         self._gpu_lock = asyncio.Lock()
+        self._cuda_stream = (
+            torch.cuda.Stream(device=self._device)
+            if str(device).startswith("cuda") and torch.cuda.is_available()
+            else None
+        )
 
     async def add_request(self, payload: StagePayload) -> None:
         request_id = payload.request_id
@@ -122,6 +127,7 @@ class Audio8StreamingVocoderExecutor(Executor):
         output_queue = self._output_queues[request_id]
         state = load_state(payload)
         frames: list[torch.Tensor] = []
+        emitted_chunks: list[np.ndarray] = []
         emitted_samples = 0
         prev_tail: np.ndarray | None = None
         overlap_samples = 256
@@ -131,7 +137,7 @@ class Audio8StreamingVocoderExecutor(Executor):
                 item = await self._stream_queue.get(request_id)
                 if item is None:
                     break
-                codes = torch.as_tensor(item.data, device=self._device, dtype=torch.long)
+                codes = torch.as_tensor(item.data, device="cpu", dtype=torch.long)
                 if codes.ndim == 1:
                     codes = codes[:, None]
                 semantic = int(codes[0, -1].item())
@@ -180,6 +186,7 @@ class Audio8StreamingVocoderExecutor(Executor):
                         prev_tail = None
 
                     if to_send.size > 0:
+                        emitted_chunks.append(to_send)
                         await output_queue.put(self._audio_payload(to_send))
 
             if not frames:
@@ -200,15 +207,23 @@ class Audio8StreamingVocoderExecutor(Executor):
                     final_chunk = np.concatenate([prev_tail, final_chunk])
                     prev_tail = None
 
+                emitted_chunks.append(final_chunk)
                 await output_queue.put(self._audio_payload(final_chunk))
             elif prev_tail is not None:
+                emitted_chunks.append(prev_tail)
                 await output_queue.put(self._audio_payload(prev_tail))
                 prev_tail = None
 
             await output_queue.put(None)
 
-            # Chunks were already decoded and emitted progressively during the stream.
-            # Do NOT re-decode the full sequence from 0 to len(frames), which allocates 2.77+ GB and causes CUDA OOM!
+            # Assemble full audio in CPU RAM from already-decoded chunks (0 GPU memory, 0 GPU compute!)
+            # so non-streaming HTTP requests also receive the complete waveform without 2.77GB CUDA OOM.
+            full_audio = (
+                np.concatenate(emitted_chunks)
+                if emitted_chunks
+                else np.zeros(0, dtype=np.float32)
+            )
+            payload.data = self._audio_payload(full_audio)
             prompt_tokens = len(state.input_ids) if state.input_ids is not None else 0
             payload.data["usage"] = {
                 "prompt_tokens": prompt_tokens,
@@ -248,10 +263,18 @@ class Audio8StreamingVocoderExecutor(Executor):
         start: int,
         end: int,
     ) -> np.ndarray:
+        codes_cpu = torch.stack(frames[start:end], dim=1).unsqueeze(0)
         if str(self._device).startswith("cuda"):
             torch.cuda.set_device(self._device)
-        codes = torch.stack(frames[start:end], dim=1).unsqueeze(0)
+        if self._cuda_stream is not None:
+            with torch.cuda.stream(self._cuda_stream), torch.inference_mode():
+                codes = codes_cpu.to(device=self._device, dtype=torch.long, non_blocking=True)
+                audio = self._codec.decode(codes)[0, 0]
+                audio_cpu = audio.detach().float().cpu()
+            self._cuda_stream.synchronize()
+            return audio_cpu.numpy().copy()
         with torch.inference_mode():
+            codes = codes_cpu.to(device=self._device, dtype=torch.long)
             audio = self._codec.decode(codes)[0, 0]
         return audio.detach().float().cpu().numpy().copy()
 
