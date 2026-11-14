@@ -308,6 +308,8 @@ impl TtsEngine {
             )?;
 
             let mut streamer = ProgressiveAudio8Streamer::new(&self.manifest);
+            let mut resampler = (out_sr != native_sr)
+                .then(|| audio::StreamingLanczosResampler::new(native_sr, out_sr));
             let mut client_open = true;
 
             engine.generate_frames_with_callback(
@@ -320,14 +322,12 @@ impl TtsEngine {
                 abort_flag.as_ref(),
                 |frame, eng| {
                     if let Some(chunk_44k) = streamer.push_frame(frame, eng)? {
-                        let out_chunk = if out_sr != native_sr {
-                            audio::resample_lanczos(&chunk_44k, native_sr, out_sr)
-                        } else {
-                            chunk_44k
-                        };
-                        if !out_chunk.is_empty() {
-                            client_open = on_audio_chunk(out_chunk)?;
-                        }
+                        client_open = emit_resampled_chunk(
+                            &mut resampler,
+                            chunk_44k,
+                            false,
+                            &mut on_audio_chunk,
+                        )?;
                     }
                     Ok(client_open)
                 },
@@ -337,15 +337,9 @@ impl TtsEngine {
                 break;
             }
 
-            if let Some(tail_44k) = streamer.finalize(&mut engine)? {
-                let out_tail = if out_sr != native_sr {
-                    audio::resample_lanczos(&tail_44k, native_sr, out_sr)
-                } else {
-                    tail_44k
-                };
-                if !out_tail.is_empty() && !on_audio_chunk(out_tail)? {
-                    break;
-                }
+            let tail_44k = streamer.finalize(&mut engine)?.unwrap_or_default();
+            if !emit_resampled_chunk(&mut resampler, tail_44k, true, &mut on_audio_chunk)? {
+                break;
             }
         }
 
@@ -399,6 +393,8 @@ impl TtsEngine {
             )?;
 
             let mut streamer = ProgressiveAudio8Streamer::new(&self.manifest);
+            let mut resampler = (out_sr != native_sr)
+                .then(|| audio::StreamingLanczosResampler::new(native_sr, out_sr));
             let mut client_open = true;
 
             engine.generate_frames_with_callback(
@@ -411,14 +407,12 @@ impl TtsEngine {
                 abort_flag.as_ref(),
                 |frame, eng| {
                     if let Some(chunk_44k) = streamer.push_frame(frame, eng)? {
-                        let out_chunk = if out_sr != native_sr {
-                            audio::resample_lanczos(&chunk_44k, native_sr, out_sr)
-                        } else {
-                            chunk_44k
-                        };
-                        if !out_chunk.is_empty() {
-                            client_open = on_audio_chunk(out_chunk)?;
-                        }
+                        client_open = emit_resampled_chunk(
+                            &mut resampler,
+                            chunk_44k,
+                            false,
+                            &mut on_audio_chunk,
+                        )?;
                     }
                     Ok(client_open)
                 },
@@ -428,15 +422,9 @@ impl TtsEngine {
                 break;
             }
 
-            if let Some(tail_44k) = streamer.finalize(&mut engine)? {
-                let out_tail = if out_sr != native_sr {
-                    audio::resample_lanczos(&tail_44k, native_sr, out_sr)
-                } else {
-                    tail_44k
-                };
-                if !out_tail.is_empty() && !on_audio_chunk(out_tail)? {
-                    break;
-                }
+            let tail_44k = streamer.finalize(&mut engine)?.unwrap_or_default();
+            if !emit_resampled_chunk(&mut resampler, tail_44k, true, &mut on_audio_chunk)? {
+                break;
             }
         }
 
@@ -472,5 +460,26 @@ impl TtsEngine {
             abort_flag,
             on_audio_chunk,
         )
+    }
+}
+
+fn emit_resampled_chunk<F>(
+    resampler: &mut Option<audio::StreamingLanczosResampler>,
+    samples_44k: Vec<f32>,
+    is_final: bool,
+    on_audio_chunk: &mut F,
+) -> Result<bool>
+where
+    F: FnMut(Vec<f32>) -> Result<bool>,
+{
+    let out_chunk = if let Some(r) = resampler.as_mut() {
+        r.push(&samples_44k, is_final)
+    } else {
+        samples_44k
+    };
+    if out_chunk.is_empty() {
+        Ok(true)
+    } else {
+        on_audio_chunk(out_chunk)
     }
 }

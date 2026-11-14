@@ -433,59 +433,54 @@ def apply_rope(x: torch.Tensor, freqs_cis: torch.Tensor) -> torch.Tensor:
 
 
 @torch.jit.script
-def slice_and_mask_slow(
-    k_cache: torch.Tensor,
-    v_cache: torch.Tensor,
+def compute_slow_mask(
     input_pos: torch.Tensor,
     valid_len: torch.Tensor,
-    repeat_factor: int,
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> torch.Tensor:
     vlen = int(valid_len[0].item())
-    k_slice = k_cache[:, :, :vlen, :]
-    v_slice = v_cache[:, :, :vlen, :]
-    if repeat_factor > 1:
-        k_rep = k_slice.repeat_interleave(repeat_factor, dim=1)
-        v_rep = v_slice.repeat_interleave(repeat_factor, dim=1)
-    else:
-        k_rep = k_slice
-        v_rep = v_slice
     k_pos = torch.arange(vlen, dtype=torch.int64, device=input_pos.device)
-    mask = (k_pos.unsqueeze(0) <= input_pos.unsqueeze(1)).unsqueeze(0).unsqueeze(0)
-    return k_rep, v_rep, mask
+    return (k_pos.unsqueeze(0) <= input_pos.unsqueeze(1)).unsqueeze(0).unsqueeze(0)
 
 
 @torch.jit.script
-def slice_and_mask_fast(
+def expand_gqa_kv(
+    k: torch.Tensor,
+    v: torch.Tensor,
+    repeat_factor: int,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    if repeat_factor <= 1:
+        return k, v
+    b = k.shape[0]
+    h_kv = k.shape[1]
+    s = k.shape[2]
+    d = k.shape[3]
+    k_rep = k.unsqueeze(2).expand(b, h_kv, repeat_factor, s, d).reshape(b, h_kv * repeat_factor, s, d)
+    v_rep = v.unsqueeze(2).expand(b, h_kv, repeat_factor, s, d).reshape(b, h_kv * repeat_factor, s, d)
+    return k_rep, v_rep
+
+
+@torch.jit.script
+def expand_slow_kv(
     k_cache: torch.Tensor,
     v_cache: torch.Tensor,
-    input_pos: torch.Tensor,
+    mask: torch.Tensor,
     repeat_factor: int,
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    max_cb = k_cache.shape[2]
-    if repeat_factor > 1:
-        k_rep = k_cache.repeat_interleave(repeat_factor, dim=1)
-        v_rep = v_cache.repeat_interleave(repeat_factor, dim=1)
-    else:
-        k_rep = k_cache
-        v_rep = v_cache
-    k_pos = torch.arange(max_cb, dtype=torch.int64, device=input_pos.device)
-    mask = (k_pos <= input_pos[0]).unsqueeze(0).unsqueeze(0).unsqueeze(0)
-    return k_rep, v_rep, mask
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    vlen = mask.shape[-1]
+    return expand_gqa_kv(k_cache[:, :, :vlen, :], v_cache[:, :, :vlen, :], repeat_factor)
 
 
 @torch.jit.script
-def sample_fast_gpu(
+def sample_fast_gpu_scalars(
     logits: torch.Tensor,
-    temperature: torch.Tensor,
-    top_p: torch.Tensor,
-    top_k: torch.Tensor,
+    t: float,
+    p_raw: float,
+    k_raw: int,
 ) -> torch.Tensor:
     """
-    GPU-resident Top-K / Top-P / Temperature sampler returning `[1]` `int64` token ID.
+    GPU-resident Top-K / Top-P / Temperature sampler taking pre-extracted scalar
+    sampling parameters and returning `[1]` `int64` token ID.
     """
-    t = float(temperature[0].item())
-    k_raw = int(top_k[0].item())
-    p_raw = float(top_p[0].item())
     logits_f = logits.float()
 
     if t <= 0.02 or k_raw == 1:
@@ -517,6 +512,24 @@ def sample_fast_gpu(
         probs = torch.zeros_like(probs).scatter_(0, sorted_i, sorted_p)
     probs = probs / probs.sum().clamp_min(1e-9)
     return torch.multinomial(probs, 1).to(torch.int64)
+
+
+@torch.jit.script
+def sample_fast_gpu(
+    logits: torch.Tensor,
+    temperature: torch.Tensor,
+    top_p: torch.Tensor,
+    top_k: torch.Tensor,
+) -> torch.Tensor:
+    """
+    GPU-resident Top-K / Top-P / Temperature sampler returning `[1]` `int64` token ID.
+    """
+    return sample_fast_gpu_scalars(
+        logits,
+        float(temperature[0].item()),
+        float(top_p[0].item()),
+        int(top_k[0].item()),
+    )
 
 
 class SlowARTorchWrapper(nn.Module):
@@ -612,6 +625,7 @@ class SlowARTorchWrapper(nn.Module):
         is_semantic = (row0 >= self.semantic_begin_id) & (row0 <= self.semantic_end_id)
         hidden = torch.where(is_semantic.unsqueeze(-1), text_emb_scaled + cb_emb, text_emb)
         rope_cis = self.freqs_cis[input_pos]
+        mask = compute_slow_mask(input_pos, valid_len)
 
         for idx, layer in enumerate(self.layers):
             normed = layer.attention_norm(hidden)
@@ -632,8 +646,8 @@ class SlowARTorchWrapper(nn.Module):
             k_caches[idx].index_copy_(2, input_pos, k)
             v_caches[idx].index_copy_(2, input_pos, v)
 
-            k_rep, v_rep, mask = slice_and_mask_slow(
-                k_caches[idx], v_caches[idx], input_pos, valid_len, self.repeat_factor
+            k_rep, v_rep = expand_slow_kv(
+                k_caches[idx], v_caches[idx], mask, self.repeat_factor
             )
             attn_out = F.scaled_dot_product_attention(
                 q, k_rep, v_rep, attn_mask=mask, is_causal=False
@@ -677,6 +691,11 @@ class FastARCoreStepWrapper(nn.Module):
         self.register_buffer(
             "fast_freqs_cis", compute_rope_cis(fast_rope_len, self.head_dim, rope_base)
         )
+        cb_idx = torch.arange(fast_rope_len, dtype=torch.int64)
+        self.register_buffer(
+            "fast_causal_mask",
+            (cb_idx.unsqueeze(0) <= cb_idx.unsqueeze(1)).unsqueeze(1).unsqueeze(1),
+        )
 
     def forward(
         self,
@@ -686,6 +705,7 @@ class FastARCoreStepWrapper(nn.Module):
         v_caches: torch.Tensor,
     ) -> torch.Tensor:
         rope_cis = self.fast_freqs_cis[input_pos]
+        mask = self.fast_causal_mask.index_select(0, input_pos)
         for idx, layer in enumerate(self.fast_layers):
             normed = layer.attention_norm(hidden)
             attn = layer.attention
@@ -705,9 +725,7 @@ class FastARCoreStepWrapper(nn.Module):
             k_caches[idx].index_copy_(2, input_pos, k)
             v_caches[idx].index_copy_(2, input_pos, v)
 
-            k_rep, v_rep, mask = slice_and_mask_fast(
-                k_caches[idx], v_caches[idx], input_pos, self.repeat_factor
-            )
+            k_rep, v_rep = expand_gqa_kv(k_caches[idx], v_caches[idx], self.repeat_factor)
             attn_out = F.scaled_dot_product_attention(
                 q, k_rep, v_rep, attn_mask=mask, is_causal=False
             )
@@ -752,6 +770,7 @@ class FastARLoopTorchWrapper(nn.Module):
         self.fast_n_local_heads = fast_n_local_heads
         self.fast_head_dim = fast_head_dim
         self.num_codebooks = num_codebooks
+        self.register_buffer("pos_seq", torch.arange(num_codebooks, dtype=torch.int64))
 
     def forward(
         self,
@@ -763,6 +782,10 @@ class FastARLoopTorchWrapper(nn.Module):
     ) -> torch.Tensor:
         dev = slow_hidden.device
         dt = slow_hidden.dtype
+        t = float(temperature[0].item())
+        p_raw = float(top_p[0].item())
+        k_raw = int(top_k[0].item())
+
         kc = torch.zeros(
             (self.num_fast_layers, 1, self.fast_n_local_heads, self.num_codebooks, self.fast_head_dim),
             dtype=dt,
@@ -776,15 +799,14 @@ class FastARLoopTorchWrapper(nn.Module):
         out = torch.zeros((self.num_codebooks,), dtype=torch.int64, device=dev)
         out[0] = first_code[0]
 
-        pos_seq = torch.arange(self.num_codebooks, dtype=torch.int64, device=dev)
         h0 = self.fast_project_in(slow_hidden)
-        _ = self.step_mod(h0, pos_seq[0:1], kc, vc)
+        _ = self.step_mod(h0, self.pos_seq[0:1], kc, vc)
 
         prev = first_code.view(1, 1)
         for idx in range(1, self.num_codebooks):
             emb = self.fast_embeddings(prev)
-            logits = self.step_mod(emb, pos_seq[idx : idx + 1], kc, vc)[0, 0]
-            nxt = sample_fast_gpu(logits, temperature, top_p, top_k)
+            logits = self.step_mod(emb, self.pos_seq[idx : idx + 1], kc, vc)[0, 0]
+            nxt = sample_fast_gpu_scalars(logits, t, p_raw, k_raw)
             out[idx] = nxt[0]
             prev = nxt.view(1, 1)
 
@@ -1222,7 +1244,7 @@ def run_stage_fast_ar(
 ) -> None:
     print(f"=== [Stage 2/4] Exporting Fast AR TorchScript ({','.join(precisions)}) ===")
     fingerprint = hashlib.sha256(str(model_id).encode()).hexdigest()[:16]
-    model_cache_dir = get_persistent_cache_dir(fingerprint) / "model"
+    model_cache_dir = get_persistent_cache_dir(fingerprint) / "model_v3"
     model_cache_dir.mkdir(parents=True, exist_ok=True)
 
     dtype_map = {"fp16": torch.float16, "fp32": torch.float32}
@@ -1323,7 +1345,7 @@ def run_stage_slow_ar(
 ) -> None:
     print(f"=== [Stage 3/4] Exporting Slow AR TorchScript ({','.join(precisions)}) ===")
     fingerprint = hashlib.sha256(str(model_id).encode()).hexdigest()[:16]
-    model_cache_dir = get_persistent_cache_dir(fingerprint) / "model"
+    model_cache_dir = get_persistent_cache_dir(fingerprint) / "model_v3"
     model_cache_dir.mkdir(parents=True, exist_ok=True)
 
     dtype_map = {"fp16": torch.float16, "fp32": torch.float32}
@@ -1379,8 +1401,8 @@ def run_stage_manifest(
         "num_codebooks": int(cfg.num_codebooks),
         "codebook_size": int(cfg.codebook_size),
         "codec_hop_length": int(getattr(cfg, "codec_hop_length", 2048)),
-        "stream_context_frames": 48,
-        "stream_guard_frames": 1,
+        "stream_context_frames": 16,
+        "stream_guard_frames": 0,
         "num_layers": int(cfg.n_layer),
         "num_fast_layers": int(cfg.n_fast_layer),
         "n_local_heads": int(cfg.n_local_heads),

@@ -78,55 +78,143 @@ pub fn prepare_reference_audio(samples: &[f32], hop_length: usize) -> Result<Vec
     Ok(out)
 }
 
+const LANCZOS_LOBES: f64 = 3.0;
+
+/// Stateful streaming Lanczos-3 resampler preserving filter support and fractional
+/// phase across chunk boundaries so chunked streaming output matches one-shot [`resample`].
+#[derive(Debug, Clone)]
+pub struct StreamingLanczosResampler {
+    src_rate: u32,
+    dst_rate: u32,
+    ratio: f64,
+    filter_scale: f64,
+    support: f64,
+    buf: Vec<f32>,
+    buf_start: isize,
+    next_out_idx: usize,
+    total_in_samples: usize,
+    first_sample: Option<f32>,
+    last_sample: Option<f32>,
+}
+
+impl StreamingLanczosResampler {
+    pub fn new(src_rate: u32, dst_rate: u32) -> Self {
+        let active = src_rate > 0 && dst_rate > 0 && src_rate != dst_rate;
+        let ratio = if active {
+            src_rate as f64 / dst_rate as f64
+        } else {
+            1.0
+        };
+        // For downsampling (e.g. 44100 -> 16000), widen the sinc kernel support by `dst/src` for anti-aliasing
+        let filter_scale = if active && dst_rate < src_rate {
+            dst_rate as f64 / src_rate as f64
+        } else {
+            1.0
+        };
+        Self {
+            src_rate,
+            dst_rate,
+            ratio,
+            filter_scale,
+            support: LANCZOS_LOBES / filter_scale,
+            buf: Vec::new(),
+            buf_start: 0,
+            next_out_idx: 0,
+            total_in_samples: 0,
+            first_sample: None,
+            last_sample: None,
+        }
+    }
+
+    pub fn push(&mut self, chunk: &[f32], is_final: bool) -> Vec<f32> {
+        if self.src_rate == 0 || self.dst_rate == 0 || self.src_rate == self.dst_rate {
+            return chunk.to_vec();
+        }
+        if !chunk.is_empty() {
+            if self.first_sample.is_none() {
+                self.first_sample = Some(chunk[0]);
+            }
+            self.last_sample = Some(chunk[chunk.len() - 1]);
+            self.buf.extend_from_slice(chunk);
+            self.total_in_samples += chunk.len();
+        }
+        if self.total_in_samples == 0 {
+            return Vec::new();
+        }
+
+        let buf_end = self.total_in_samples as isize;
+        let target_total_out = if is_final {
+            ((self.total_in_samples as f64) / self.ratio).round() as usize
+        } else {
+            usize::MAX
+        };
+        let first_val = self.first_sample.unwrap_or(0.0);
+        let last_val = self.last_sample.unwrap_or(0.0);
+        let mut out = Vec::new();
+
+        while self.next_out_idx < target_total_out {
+            let center = (self.next_out_idx as f64 + 0.5) * self.ratio - 0.5;
+            let left = (center - self.support).floor() as isize;
+            let right = (center + self.support).ceil() as isize;
+
+            if !is_final && right >= buf_end {
+                break;
+            }
+
+            let mut sum = 0.0_f64;
+            let mut weight_sum = 0.0_f64;
+
+            for j in left..=right {
+                let sample = if j < 0 {
+                    first_val
+                } else if j >= buf_end {
+                    last_val
+                } else {
+                    self.buf[(j - self.buf_start) as usize]
+                };
+                let x = (center - j as f64) * self.filter_scale;
+                let w = lanczos_kernel(x, LANCZOS_LOBES);
+                sum += (sample as f64) * w;
+                weight_sum += w;
+            }
+
+            let val = if weight_sum.abs() > 1e-12 {
+                (sum / weight_sum) as f32
+            } else {
+                0.0
+            };
+            out.push(val.clamp(-1.0, 1.0));
+            self.next_out_idx += 1;
+        }
+
+        if is_final {
+            self.buf.clear();
+            self.buf_start = buf_end;
+        } else {
+            let next_center = (self.next_out_idx as f64 + 0.5) * self.ratio - 0.5;
+            let next_left = (next_center - self.support).floor() as isize;
+            let keep_from = next_left.max(self.buf_start).min(buf_end);
+            if keep_from > self.buf_start {
+                let drop_n = (keep_from - self.buf_start) as usize;
+                self.buf.drain(..drop_n);
+                self.buf_start = keep_from;
+            }
+        }
+
+        out
+    }
+
+    pub fn finish(&mut self) -> Vec<f32> {
+        self.push(&[], true)
+    }
+}
+
 /// High-quality windowed-sinc (Lanczos-3) resampler with anti-aliasing filter for downsampling.
 pub fn resample(samples: &[f32], src_rate: u32, dst_rate: u32) -> Vec<f32> {
     if samples.is_empty() || src_rate == 0 || dst_rate == 0 || src_rate == dst_rate {
         return samples.to_vec();
     }
-
-    let ratio = src_rate as f64 / dst_rate as f64;
-    let out_len = ((samples.len() as f64) / ratio).round() as usize;
-    if out_len == 0 {
-        return Vec::new();
-    }
-
-    // For downsampling (e.g. 44100 -> 16000), widen the sinc kernel support by `ratio` for anti-aliasing
-    let filter_scale = if dst_rate < src_rate {
-        dst_rate as f64 / src_rate as f64
-    } else {
-        1.0
-    };
-    let a = 3.0_f64; // Lanczos-3 lobes
-    let support = a / filter_scale;
-
-    let mut out = Vec::with_capacity(out_len);
-    let n_in = samples.len() as isize;
-
-    for i in 0..out_len {
-        let center = (i as f64 + 0.5) * ratio - 0.5;
-        let left = (center - support).floor() as isize;
-        let right = (center + support).ceil() as isize;
-
-        let mut sum = 0.0_f64;
-        let mut weight_sum = 0.0_f64;
-
-        for j in left..=right {
-            let idx = j.clamp(0, n_in - 1) as usize;
-            let x = (center - j as f64) * filter_scale;
-            let w = lanczos_kernel(x, a);
-            sum += (samples[idx] as f64) * w;
-            weight_sum += w;
-        }
-
-        let val = if weight_sum.abs() > 1e-12 {
-            (sum / weight_sum) as f32
-        } else {
-            0.0
-        };
-        out.push(val.clamp(-1.0, 1.0));
-    }
-
-    out
+    StreamingLanczosResampler::new(src_rate, dst_rate).push(samples, true)
 }
 
 #[inline]
@@ -287,6 +375,65 @@ pub fn pcm16le_bytes_to_samples(bytes: &[u8]) -> Vec<f32> {
         samples.push(pcm as f32 / 32768.0);
     }
     samples
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sine_wave(sample_rate: u32, freq: f32, len: usize) -> Vec<f32> {
+        (0..len)
+            .map(|i| {
+                let t = i as f32 / sample_rate as f32;
+                0.7 * (2.0 * std::f32::consts::PI * freq * t).sin()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn streaming_lanczos_matches_oneshot_downsample() {
+        let signal = sine_wave(44100, 440.0, 22531);
+        let expected = resample(&signal, 44100, 16000);
+
+        let chunk_sizes = [1607usize, 5703, 10240, 1, 0, 441, 4096];
+        let mut resampler = StreamingLanczosResampler::new(44100, 16000);
+        let mut streamed = Vec::new();
+        let mut pos = 0;
+        let mut idx = 0;
+        while pos < signal.len() {
+            let sz = chunk_sizes[idx % chunk_sizes.len()].min(signal.len() - pos);
+            streamed.extend(resampler.push(&signal[pos..pos + sz], false));
+            pos += sz;
+            idx += 1;
+        }
+        streamed.extend(resampler.finish());
+
+        assert_eq!(streamed.len(), expected.len());
+        let max_diff = streamed
+            .iter()
+            .zip(expected.iter())
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0_f32, f32::max);
+        assert!(max_diff < 1e-6, "max_diff={max_diff}");
+    }
+
+    #[test]
+    fn streaming_lanczos_matches_oneshot_upsample_and_identity() {
+        let signal = sine_wave(16000, 310.0, 4096);
+        let expected_up = resample(&signal, 16000, 44100);
+        let mut up = StreamingLanczosResampler::new(16000, 44100);
+        let mut streamed_up = Vec::new();
+        for piece in signal.chunks(333) {
+            streamed_up.extend(up.push(piece, false));
+        }
+        streamed_up.extend(up.finish());
+        assert_eq!(streamed_up, expected_up);
+
+        let mut id = StreamingLanczosResampler::new(44100, 44100);
+        let mut streamed_id = id.push(&signal[..1000], false);
+        streamed_id.extend(id.push(&signal[1000..], true));
+        assert_eq!(streamed_id, signal);
+    }
 }
 
 

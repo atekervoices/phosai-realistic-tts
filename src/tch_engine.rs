@@ -136,9 +136,12 @@ pub fn check_semantic_repetition(history: &[i64]) -> bool {
 pub struct ProgressiveAudio8Streamer {
     all_frames: Vec<Vec<i64>>,
     emitted_samples: usize,
+    decoded_frames: usize,
     hop_length: usize,
     context_frames: usize,
     guard_samples: usize,
+    num_codebooks: usize,
+    sample_rate: u32,
     first_chunk_frames: usize,
     chunk_frames: usize,
     first_emitted: bool,
@@ -149,17 +152,20 @@ pub struct ProgressiveAudio8Streamer {
 impl ProgressiveAudio8Streamer {
     pub fn new(manifest: &RuntimeManifest) -> Self {
         let hop = manifest.codec_hop_length.max(1);
-        let context = manifest.stream_context_frames.max(16);
+        let context = manifest.stream_context_frames.max(12);
         let guard = manifest.stream_guard_frames * hop;
         let crossfade_len = ((manifest.sample_rate as usize) / 100).max(64);
         Self {
             all_frames: Vec::with_capacity(256),
             emitted_samples: 0,
+            decoded_frames: 0,
             hop_length: hop,
             context_frames: context,
             guard_samples: guard,
-            first_chunk_frames: 2,
-            chunk_frames: 3,
+            num_codebooks: manifest.num_codebooks.max(1),
+            sample_rate: manifest.sample_rate.max(1),
+            first_chunk_frames: 3,
+            chunk_frames: 5,
             first_emitted: false,
             crossfade_tail: Vec::new(),
             crossfade_len,
@@ -175,6 +181,17 @@ impl ProgressiveAudio8Streamer {
         frame: Vec<i64>,
         engine: &mut Audio8TchEngine,
     ) -> Result<Option<Vec<f32>>> {
+        self.push_frame_with(frame, |codes| engine.decode_codes(codes))
+    }
+
+    pub fn push_frame_with<F>(
+        &mut self,
+        frame: Vec<i64>,
+        decode_fn: F,
+    ) -> Result<Option<Vec<f32>>>
+    where
+        F: FnMut(&Array2<i64>) -> Result<Vec<f32>>,
+    {
         self.all_frames.push(frame);
         let total = self.all_frames.len();
 
@@ -188,23 +205,53 @@ impl ProgressiveAudio8Streamer {
             return Ok(None);
         }
 
-        self.decode_window(engine, false)
+        self.decode_window_with(false, decode_fn)
     }
 
     pub fn finalize(&mut self, engine: &mut Audio8TchEngine) -> Result<Option<Vec<f32>>> {
+        self.finalize_with(|codes| engine.decode_codes(codes))
+    }
+
+    pub fn finalize_with<F>(&mut self, decode_fn: F) -> Result<Option<Vec<f32>>>
+    where
+        F: FnMut(&Array2<i64>) -> Result<Vec<f32>>,
+    {
         if self.all_frames.is_empty() {
             return Ok(None);
         }
-        self.decode_window(engine, true)
+        if self.guard_samples == 0
+            && self.decoded_frames == self.all_frames.len()
+            && !self.crossfade_tail.is_empty()
+        {
+            let mut tail = std::mem::take(&mut self.crossfade_tail);
+            self.emitted_samples += tail.len();
+            self.apply_boundary_fades(&mut tail, true);
+            return Ok(Some(tail));
+        }
+        self.decode_window_with(true, decode_fn)
     }
 
-    fn decode_window(
+    fn apply_boundary_fades(&mut self, samples: &mut [f32], is_final: bool) {
+        let fade_samples = ((self.sample_rate as usize) * 5) / 1000;
+        if !self.first_emitted {
+            audio::apply_fade_in(samples, fade_samples);
+            self.first_emitted = true;
+        }
+        if is_final {
+            audio::apply_fade_out(samples, fade_samples);
+        }
+    }
+
+    fn decode_window_with<F>(
         &mut self,
-        engine: &mut Audio8TchEngine,
         is_final: bool,
-    ) -> Result<Option<Vec<f32>>> {
+        mut decode_fn: F,
+    ) -> Result<Option<Vec<f32>>>
+    where
+        F: FnMut(&Array2<i64>) -> Result<Vec<f32>>,
+    {
         let total_frames = self.all_frames.len();
-        let num_cb = engine.manifest.num_codebooks;
+        let num_cb = self.num_codebooks;
         let window_span = self.context_frames + self.chunk_frames;
         let start_frame = total_frames.saturating_sub(window_span);
         let window_frames = total_frames - start_frame;
@@ -216,7 +263,8 @@ impl ProgressiveAudio8Streamer {
             }
         }
 
-        let audio = engine.decode_codes(&window_codes)?;
+        let audio = decode_fn(&window_codes)?;
+        self.decoded_frames = total_frames;
         let absolute_start = start_frame * self.hop_length;
         let guard = if is_final { 0 } else { self.guard_samples };
         let stable_end = absolute_start + audio.len().saturating_sub(guard);
@@ -227,21 +275,31 @@ impl ProgressiveAudio8Streamer {
             .max(begin)
             .min(audio.len());
 
-        if end <= begin {
-            return Ok(None);
-        }
+        let mut chunk = if end > begin {
+            audio[begin..end].to_vec()
+        } else {
+            Vec::new()
+        };
 
-        let mut chunk = audio[begin..end].to_vec();
-        self.emitted_samples += chunk.len();
-
-        if !self.crossfade_tail.is_empty() && chunk.len() >= self.crossfade_tail.len() {
-            let n = self.crossfade_tail.len();
+        if chunk.is_empty() {
+            if is_final && !self.crossfade_tail.is_empty() {
+                chunk = std::mem::take(&mut self.crossfade_tail);
+            } else {
+                return Ok(None);
+            }
+        } else if !self.crossfade_tail.is_empty() {
+            let n = self.crossfade_tail.len().min(chunk.len());
             for i in 0..n {
                 let w = (i as f32 + 1.0) / (n as f32 + 1.0);
                 chunk[i] = self.crossfade_tail[i] * (1.0 - w) + chunk[i] * w;
             }
+            if chunk.len() < self.crossfade_tail.len() {
+                chunk.extend_from_slice(&self.crossfade_tail[n..]);
+            }
             self.crossfade_tail.clear();
         }
+
+        self.emitted_samples += chunk.len();
 
         if !is_final && chunk.len() > self.crossfade_len * 2 {
             let split = chunk.len() - self.crossfade_len;
@@ -250,16 +308,7 @@ impl ProgressiveAudio8Streamer {
             self.emitted_samples -= self.crossfade_len;
         }
 
-        if !self.first_emitted {
-            let fade_samples = ((engine.manifest.sample_rate as usize) * 5) / 1000;
-            audio::apply_fade_in(&mut chunk, fade_samples);
-            self.first_emitted = true;
-        }
-
-        if is_final {
-            let fade_samples = ((engine.manifest.sample_rate as usize) * 5) / 1000;
-            audio::apply_fade_out(&mut chunk, fade_samples);
-        }
+        self.apply_boundary_fades(&mut chunk, is_final);
 
         Ok(Some(chunk))
     }
@@ -455,33 +504,51 @@ impl Audio8TchEngine {
         let num_cb = self.manifest.num_codebooks;
         let (k_caches, v_caches) = self.alloc_slow_kv();
 
-        let dummy_prefill = Array3::<i64>::zeros((1, num_cb + 1, 8));
-        let (_, hidden_gpu) = self.slow_step(&dummy_prefill, 0, &k_caches, &v_caches)?;
-
-        let dummy_step = Array3::<i64>::zeros((1, num_cb + 1, 1));
-        let _ = self.slow_step(&dummy_step, 8, &k_caches, &v_caches)?;
-
         let first_code_t = Tensor::from_slice(&[0i64])
             .to_kind(Kind::Int64)
             .to_device(self.device);
-        let temp_t = Tensor::from_slice(&[0.7f32])
-            .to_kind(Kind::Float)
-            .to_device(self.device);
-        let top_p_t = Tensor::from_slice(&[0.8f32])
-            .to_kind(Kind::Float)
-            .to_device(self.device);
-        let top_k_t = Tensor::from_slice(&[20i64])
-            .to_kind(Kind::Int64)
-            .to_device(self.device);
-        let _ = self.fast.forward_ts(&[
-            hidden_gpu,
-            first_code_t,
-            temp_t,
-            top_p_t,
-            top_k_t,
-        ])?;
+        // Scalar args remain on CPU so TorchScript reads them with zero CUDA stream syncs.
+        let temp_t = Tensor::from_slice(&[0.7f32]).to_kind(Kind::Float);
+        let top_p_t = Tensor::from_slice(&[0.8f32]).to_kind(Kind::Float);
+        let top_k_t = Tensor::from_slice(&[20i64]).to_kind(Kind::Int64);
 
-        for warm_frames in [2usize, 8usize] {
+        // Run multiple prefill & decode iterations to finish LibTorch JIT profiling/fusion
+        // and cuBLAS workspace setup before serving the first real request.
+        let realistic_prefill = 160.min(self.manifest.max_seq_len.saturating_sub(8)).max(16);
+        for prefill_len in [16usize, realistic_prefill] {
+            let dummy_prefill = Array3::<i64>::zeros((1, num_cb + 1, prefill_len));
+            let (_, hidden_gpu) = self.slow_step(&dummy_prefill, 0, &k_caches, &v_caches)?;
+            let _ = self.fast.forward_ts(&[
+                hidden_gpu,
+                first_code_t.shallow_clone(),
+                temp_t.shallow_clone(),
+                top_p_t.shallow_clone(),
+                top_k_t.shallow_clone(),
+            ])?;
+        }
+
+        let dummy_step = Array3::<i64>::zeros((1, num_cb + 1, 1));
+        for step_offset in 0..3 {
+            let (_, step_hidden) = self.slow_step(
+                &dummy_step,
+                realistic_prefill + step_offset,
+                &k_caches,
+                &v_caches,
+            )?;
+            let _ = self.fast.forward_ts(&[
+                step_hidden,
+                first_code_t.shallow_clone(),
+                temp_t.shallow_clone(),
+                top_p_t.shallow_clone(),
+                top_k_t.shallow_clone(),
+            ])?;
+        }
+
+        let steady_window = self.manifest.stream_context_frames.max(12) + 5;
+        let mut codec_lengths = vec![3usize, 8, 13, 18, steady_window];
+        codec_lengths.sort_unstable();
+        codec_lengths.dedup();
+        for warm_frames in codec_lengths {
             let dummy_vq = Array2::<i64>::zeros((num_cb, warm_frames));
             let _ = self.decode_codes(&dummy_vq)?;
         }
@@ -515,9 +582,7 @@ impl Audio8TchEngine {
         let pos_t = Tensor::from_slice(&pos_vec)
             .to_kind(Kind::Int64)
             .to_device(self.device);
-        let valid_len_t = Tensor::from_slice(&[(start_pos + seq_len) as i64])
-            .to_kind(Kind::Int64)
-            .to_device(self.device);
+        let valid_len_t = Tensor::from_slice(&[(start_pos + seq_len) as i64]).to_kind(Kind::Int64);
 
         let iv = self
             .slow
@@ -678,15 +743,9 @@ impl Audio8TchEngine {
 
         let mut current_hidden = hidden_gpu.context("Prompt prefill produced no hidden state")?;
 
-        let temp_t = Tensor::from_slice(&[temperature])
-            .to_kind(Kind::Float)
-            .to_device(self.device);
-        let top_p_t = Tensor::from_slice(&[top_p])
-            .to_kind(Kind::Float)
-            .to_device(self.device);
-        let top_k_t = Tensor::from_slice(&[top_k as i64])
-            .to_kind(Kind::Int64)
-            .to_device(self.device);
+        let temp_t = Tensor::from_slice(&[temperature]).to_kind(Kind::Float);
+        let top_p_t = Tensor::from_slice(&[top_p]).to_kind(Kind::Float);
+        let top_k_t = Tensor::from_slice(&[top_k as i64]).to_kind(Kind::Int64);
 
         let mut ras_window: Vec<i64> = Vec::with_capacity(self.manifest.ras_window_size + 1);
         let mut full_semantic_history: Vec<i64> = Vec::with_capacity(max_steps);
@@ -856,5 +915,100 @@ impl Audio8TchEngine {
         codes_cpu.copy_data(&mut flat, n);
 
         Array2::from_shape_vec((rows, cols), flat).context("Failed to reshape encoded VQ codes")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_manifest(guard_frames: usize) -> RuntimeManifest {
+        RuntimeManifest {
+            sample_rate: 44100,
+            codec_hop_length: 2048,
+            num_codebooks: 10,
+            stream_context_frames: 16,
+            stream_guard_frames: guard_frames,
+            ..RuntimeManifest::default()
+        }
+    }
+
+    #[test]
+    fn streamer_emits_continuous_exact_length_with_zero_guard() {
+        let manifest = test_manifest(0);
+        let hop = manifest.codec_hop_length;
+        let mut streamer = ProgressiveAudio8Streamer::new(&manifest);
+        let mut emitted = Vec::new();
+        let mut chunk_lengths = Vec::new();
+
+        // Total 13 frames: first chunk on frame 3, second on frame 8, third on frame 13, then finalize
+        let total_frames = 13usize;
+        for f in 0..total_frames {
+            let mut frame = vec![0i64; manifest.num_codebooks];
+            frame[0] = f as i64;
+            if let Some(chunk) = streamer
+                .push_frame_with(frame, |codes| {
+                    let start_frame = codes[[0, 0]] as usize;
+                    let n_frames = codes.shape()[1];
+                    let start_sample = start_frame * hop;
+                    Ok((0..n_frames * hop)
+                        .map(|i| {
+                            let idx = start_sample + i;
+                            0.5 * (2.0 * std::f32::consts::PI * 220.0 * (idx as f32 / 44100.0)).sin()
+                        })
+                        .collect())
+                })
+                .unwrap()
+            {
+                chunk_lengths.push(chunk.len());
+                emitted.extend(chunk);
+            }
+        }
+        if let Some(tail) = streamer
+            .finalize_with(|codes| {
+                let start_frame = codes[[0, 0]] as usize;
+                let n_frames = codes.shape()[1];
+                let start_sample = start_frame * hop;
+                Ok((0..n_frames * hop)
+                    .map(|i| {
+                        let idx = start_sample + i;
+                        0.5 * (2.0 * std::f32::consts::PI * 220.0 * (idx as f32 / 44100.0)).sin()
+                    })
+                    .collect())
+            })
+            .unwrap()
+        {
+            chunk_lengths.push(tail.len());
+            emitted.extend(tail);
+        }
+
+        // First chunk: 3*2048 - 441 = 5703; chunks 2 & 3: 5*2048 = 10240 each; finalize: 441 crossfade tail
+        assert_eq!(chunk_lengths, vec![5703, 10240, 10240, 441]);
+        assert_eq!(emitted.len(), total_frames * hop);
+    }
+
+    #[test]
+    fn streamer_blends_short_final_tail_without_dropping_crossfade() {
+        let manifest = test_manifest(1);
+        let hop = manifest.codec_hop_length;
+        let mut streamer = ProgressiveAudio8Streamer::new(&manifest);
+        let mut total_emitted = 0usize;
+
+        for f in 0..4usize {
+            if let Some(chunk) = streamer
+                .push_frame_with(vec![f as i64; 10], |codes| {
+                    Ok(vec![0.25_f32; codes.shape()[1] * hop])
+                })
+                .unwrap()
+            {
+                total_emitted += chunk.len();
+            }
+        }
+        let tail = streamer
+            .finalize_with(|codes| Ok(vec![0.25_f32; codes.shape()[1] * hop]))
+            .unwrap()
+            .expect("final tail must be emitted");
+        total_emitted += tail.len();
+        assert_eq!(total_emitted, 4 * hop);
     }
 }

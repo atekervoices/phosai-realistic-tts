@@ -67,10 +67,10 @@ pub struct RuntimeManifest {
     /// Samples per codec frame (2048 at 44.1kHz -> ~46.44ms per frame).
     #[serde(default = "default_codec_hop_length")]
     pub codec_hop_length: usize,
-    /// Sliding context window in frames for streaming vocoder decoding (48).
+    /// Sliding context window in frames for streaming vocoder decoding (16).
     #[serde(default = "default_stream_context_frames")]
     pub stream_context_frames: usize,
-    /// Guard frames trimmed from the right edge of streaming decode windows (1).
+    /// Guard frames trimmed from the right edge of streaming decode windows (0).
     #[serde(default = "default_stream_guard_frames")]
     pub stream_guard_frames: usize,
 
@@ -153,10 +153,10 @@ fn default_codec_hop_length() -> usize {
     2048
 }
 fn default_stream_context_frames() -> usize {
-    48
+    16
 }
 fn default_stream_guard_frames() -> usize {
-    1
+    0
 }
 fn default_num_layers() -> usize {
     24
