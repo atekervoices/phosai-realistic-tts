@@ -55,13 +55,13 @@ pub struct SpeechRequest {
     /// Sampling temperature (default: `0.7`)
     #[serde(default)]
     pub temperature: Option<f32>,
-    /// Nucleus sampling top-p (default: `0.8`)
+    /// Nucleus sampling top-p (default: `0.9`, matching ArkttsModel)
     #[serde(default)]
     pub top_p: Option<f32>,
-    /// Top-k sampling (default: `30`)
+    /// Top-k sampling (default: `50`, matching ArkttsModel)
     #[serde(default)]
     pub top_k: Option<usize>,
-    /// Max semantic tokens per sentence chunk (default: `2048`, matching spark-tts-rs)
+    /// Max semantic tokens per sentence chunk (default: `512`)
     #[serde(default)]
     pub max_new_tokens: Option<usize>,
     /// Random seed (default: `42`)

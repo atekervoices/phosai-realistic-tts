@@ -41,7 +41,6 @@ import torch.nn.functional as F
 
 DEFAULT_HF_TOKEN = os.environ.get("HF_TOKEN", "")
 DEFAULT_MODEL_ID = os.environ.get("MODEL_ID", "phosai/realistic-v1")
-MAX_REF_AUDIO_SECONDS = 10.0
 
 
 def sanitize_dirname(name: str) -> str:
@@ -50,7 +49,7 @@ def sanitize_dirname(name: str) -> str:
 
 def get_persistent_cache_dir(fingerprint: str) -> Path:
     hf_home = Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface"))
-    cache_dir = hf_home / f"audio8_ts_cache_{fingerprint}_v2"
+    cache_dir = hf_home / f"audio8_ts_cache_{fingerprint}_v3"
     cache_dir.mkdir(parents=True, exist_ok=True)
     return cache_dir
 
@@ -58,11 +57,7 @@ def get_persistent_cache_dir(fingerprint: str) -> Path:
 def get_voice_cache_dirs(fingerprint: str) -> List[Path]:
     hf_home = Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface"))
     return [
-        hf_home / f"audio8_ts_cache_{fingerprint}_v2" / "voices",
-        hf_home / f"audio8_ts_cache_{fingerprint}_v1" / "voices",
-        hf_home / f"audio8_build_cache_{fingerprint}_v5" / "voices",
-        hf_home / f"audio8_build_cache_{fingerprint}_v2" / "voices",
-        hf_home / f"audio8_build_cache_{fingerprint}" / "voices",
+        hf_home / f"audio8_ts_cache_{fingerprint}_v3" / "voices_full",
     ]
 
 
@@ -200,6 +195,44 @@ def patch_source_files(src_path: Path) -> None:
                         "    return torch.stack((cos, sin), dim=-1).float()"
                     ),
                     content,
+                )
+
+            if "def _apply_rope(x: Tensor, rope: Tensor) -> Tensor:" in content:
+                content = re.sub(
+                    r"def _apply_rope\(x: Tensor, rope: Tensor\) -> Tensor:[\s\S]*?return y\.flatten\(-2\)",
+                    (
+                        "@torch.jit.script\n"
+                        "def _apply_rope(x: Tensor, rope: Tensor) -> Tensor:\n"
+                        "    r = rope.unsqueeze(1).to(dtype=x.dtype)\n"
+                        "    x = x.unflatten(-1, (-1, 1, 2))\n"
+                        "    y = torch.stack((r[..., 0] * x[..., 0], r[..., 1] * x[..., 0][..., ::-1]), dim=-1)\n"
+                        "    y = y * x\n"
+                        "    y = y[..., 0] + y[..., 1]\n"
+                        "    return y.flatten(-2)\n\n\n"
+                        "@torch.jit.script\n"
+                        "def _codec_rms_norm(x: Tensor, weight: Tensor, eps: float) -> Tensor:\n"
+                        "    xf = x.float()\n"
+                        "    normed = xf * torch.rsqrt(xf.pow(2).mean(-1, keepdim=True) + eps)\n"
+                        "    return normed.to(dtype=weight.dtype) * weight"
+                    ),
+                    content,
+                )
+                content = re.sub(
+                    r"class ArkttsCodecRMSNorm\(nn\.Module\):[\s\S]*?return self\.weight \* self\._norm\(x\.float\(\)\)\.type_as\(x\)",
+                    (
+                        "class ArkttsCodecRMSNorm(nn.Module):\n"
+                        "    def __init__(self, dim: int, eps: float = 1e-5):\n"
+                        "        super().__init__()\n"
+                        "        self.eps = eps\n"
+                        "        self.weight = nn.Parameter(torch.ones(dim))\n\n"
+                        "    def forward(self, x: Tensor) -> Tensor:\n"
+                        "        return _codec_rms_norm(x, self.weight, self.eps)"
+                    ),
+                    content,
+                )
+                content = content.replace(
+                    "output = 0.0\n        for index in range(codes.shape[1]):",
+                    "output = self.quantizers[0].out_proj(self.quantizers[0].decode_code(codes[:, 0]))\n        for index in range(1, codes.shape[1]):",
                 )
             if "torch.polar" in content or "_safe_polar" in content:
                 safe_polar_code = (
@@ -439,6 +472,8 @@ def compute_slow_mask(
 ) -> torch.Tensor:
     vlen = int(valid_len[0].item())
     k_pos = torch.arange(vlen, dtype=torch.int64, device=input_pos.device)
+    if input_pos.shape[0] == 1:
+        return torch.empty((1, 1, 1, vlen), dtype=torch.bool, device=input_pos.device)
     return (k_pos.unsqueeze(0) <= input_pos.unsqueeze(1)).unsqueeze(0).unsqueeze(0)
 
 
@@ -460,14 +495,30 @@ def expand_gqa_kv(
 
 
 @torch.jit.script
-def expand_slow_kv(
+def slow_layer_sdpa(
+    q: torch.Tensor,
     k_cache: torch.Tensor,
     v_cache: torch.Tensor,
     mask: torch.Tensor,
     repeat_factor: int,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> torch.Tensor:
     vlen = mask.shape[-1]
-    return expand_gqa_kv(k_cache[:, :, :vlen, :], v_cache[:, :, :vlen, :], repeat_factor)
+    k_slice = k_cache[:, :, :vlen, :]
+    v_slice = v_cache[:, :, :vlen, :]
+    q_len = q.shape[2]
+    n_local_heads = k_slice.shape[1]
+    head_dim = q.shape[3]
+    if q_len == 1 and repeat_factor > 1:
+        q_gqa = q.reshape(1, n_local_heads, repeat_factor, head_dim)
+        out_gqa = F.scaled_dot_product_attention(
+            q_gqa, k_slice, v_slice, attn_mask=None, is_causal=False
+        )
+        return out_gqa.reshape(1, 1, n_local_heads * repeat_factor * head_dim)
+    k_rep, v_rep = expand_gqa_kv(k_slice, v_slice, repeat_factor)
+    out = F.scaled_dot_product_attention(
+        q, k_rep, v_rep, attn_mask=mask, is_causal=False
+    )
+    return out.transpose(1, 2).contiguous().view(1, q_len, n_local_heads * repeat_factor * head_dim)
 
 
 @torch.jit.script
@@ -478,40 +529,41 @@ def sample_fast_gpu_scalars(
     k_raw: int,
 ) -> torch.Tensor:
     """
-    GPU-resident Top-K / Top-P / Temperature sampler taking pre-extracted scalar
-    sampling parameters and returning `[1]` `int64` token ID.
+    GPU-resident Top-K / Top-P / Temperature sampler matching
+    `ArkttsLegacyTopKTopPLogitsProcessor` + `ArkttsModel._sample`:
+    1. Top-K & Top-P mask computed on unscaled logits over full vocabulary.
+    2. Temperature scaling applied after top-k/top-p filtering.
+    3. Zero-sync Gumbel-Max exponential race (`argmax(probs / -log(u))`).
     """
     logits_f = logits.float()
 
     if t <= 0.02 or k_raw == 1:
         return torch.argmax(logits_f, dim=-1, keepdim=True).to(torch.int64)
 
-    scaled = logits_f / max(t, 1e-5)
-    vocab = scaled.shape[0]
+    vocab = logits_f.shape[0]
     k_limit = vocab if k_raw <= 0 or k_raw >= vocab else k_raw
 
-    if k_limit < vocab:
-        top_vals, top_idx = torch.topk(scaled, k_limit)
-        probs_k = torch.softmax(top_vals, dim=-1)
-        if 0.0 < p_raw < 1.0:
-            cumsum = torch.cumsum(probs_k, dim=-1)
-            remove = (cumsum - probs_k) > p_raw
-            remove[0] = False
-            probs_k = torch.where(remove, torch.zeros_like(probs_k), probs_k)
-        probs_k = probs_k / probs_k.sum().clamp_min(1e-9)
-        picked = torch.multinomial(probs_k, 1)
-        return top_idx.index_select(0, picked).to(torch.int64)
+    sorted_logits, sorted_indices = torch.sort(logits_f, descending=True)
+    probs_unscaled = torch.softmax(sorted_logits, dim=-1)
+    cumsum = torch.cumsum(probs_unscaled, dim=-1)
 
-    probs = torch.softmax(scaled, dim=-1)
-    if 0.0 < p_raw < 1.0:
-        sorted_p, sorted_i = torch.sort(probs, descending=True)
-        cumsum = torch.cumsum(sorted_p, dim=-1)
-        remove = (cumsum - sorted_p) > p_raw
-        remove[0] = False
-        sorted_p = torch.where(remove, torch.zeros_like(sorted_p), sorted_p)
-        probs = torch.zeros_like(probs).scatter_(0, sorted_i, sorted_p)
-    probs = probs / probs.sum().clamp_min(1e-9)
-    return torch.multinomial(probs, 1).to(torch.int64)
+    remove = cumsum > p_raw
+    if k_limit < vocab:
+        k_mask = torch.arange(vocab, device=logits_f.device) >= k_limit
+        remove = remove | k_mask
+
+    remove[1:] = remove[:-1].clone()
+    remove[0] = False
+
+    neg_inf = torch.full_like(sorted_logits, -float("inf"))
+    filtered_sorted = torch.where(remove, neg_inf, sorted_logits)
+    scaled_sorted = filtered_sorted / max(t, 1e-5)
+    probs = torch.softmax(scaled_sorted, dim=-1)
+
+    u = torch.empty_like(probs).uniform_(1e-6, 1.0 - 1e-6)
+    gumbel = probs / (-torch.log(u))
+    picked = torch.argmax(gumbel, dim=-1, keepdim=True)
+    return sorted_indices.index_select(0, picked).to(torch.int64)
 
 
 @torch.jit.script
@@ -646,13 +698,9 @@ class SlowARTorchWrapper(nn.Module):
             k_caches[idx].index_copy_(2, input_pos, k)
             v_caches[idx].index_copy_(2, input_pos, v)
 
-            k_rep, v_rep = expand_slow_kv(
-                k_caches[idx], v_caches[idx], mask, self.repeat_factor
+            attn_out = slow_layer_sdpa(
+                q, k_caches[idx], v_caches[idx], mask, self.repeat_factor
             )
-            attn_out = F.scaled_dot_product_attention(
-                q, k_rep, v_rep, attn_mask=mask, is_causal=False
-            )
-            attn_out = attn_out.transpose(1, 2).contiguous().view(1, -1, self.q_size)
 
             hidden = hidden + attn.wo(attn_out)
             hidden = hidden + layer.feed_forward(layer.ffn_norm(hidden))
@@ -725,11 +773,17 @@ class FastARCoreStepWrapper(nn.Module):
             k_caches[idx].index_copy_(2, input_pos, k)
             v_caches[idx].index_copy_(2, input_pos, v)
 
-            k_rep, v_rep = expand_gqa_kv(k_caches[idx], v_caches[idx], self.repeat_factor)
-            attn_out = F.scaled_dot_product_attention(
-                q, k_rep, v_rep, attn_mask=mask, is_causal=False
-            )
-            attn_out = attn_out.transpose(1, 2).contiguous().view(1, 1, self.q_size)
+            if self.repeat_factor > 1:
+                q_gqa = q.reshape(1, self.n_local_heads, self.repeat_factor, self.head_dim)
+                attn_gqa = F.scaled_dot_product_attention(
+                    q_gqa, k_caches[idx], v_caches[idx], attn_mask=mask, is_causal=False
+                )
+                attn_out = attn_gqa.reshape(1, 1, self.q_size)
+            else:
+                attn_out = F.scaled_dot_product_attention(
+                    q, k_caches[idx], v_caches[idx], attn_mask=mask, is_causal=False
+                )
+                attn_out = attn_out.transpose(1, 2).contiguous().view(1, 1, self.q_size)
 
             hidden = hidden + attn.wo(attn_out)
             hidden = hidden + layer.feed_forward(layer.ffn_norm(hidden))
@@ -770,7 +824,29 @@ class FastARLoopTorchWrapper(nn.Module):
         self.fast_n_local_heads = fast_n_local_heads
         self.fast_head_dim = fast_head_dim
         self.num_codebooks = num_codebooks
+        target_dt = next(fast_project_in.parameters()).dtype
         self.register_buffer("pos_seq", torch.arange(num_codebooks, dtype=torch.int64))
+        self.register_buffer(
+            "kc_buf",
+            torch.zeros(
+                (num_fast_layers, 1, fast_n_local_heads, num_codebooks, fast_head_dim),
+                dtype=target_dt,
+            ),
+            persistent=False,
+        )
+        self.register_buffer(
+            "vc_buf",
+            torch.zeros(
+                (num_fast_layers, 1, fast_n_local_heads, num_codebooks, fast_head_dim),
+                dtype=target_dt,
+            ),
+            persistent=False,
+        )
+        self.register_buffer(
+            "out_buf",
+            torch.zeros((num_codebooks,), dtype=torch.int64),
+            persistent=False,
+        )
 
     def forward(
         self,
@@ -780,23 +856,13 @@ class FastARLoopTorchWrapper(nn.Module):
         top_p: torch.Tensor,
         top_k: torch.Tensor,
     ) -> torch.Tensor:
-        dev = slow_hidden.device
-        dt = slow_hidden.dtype
         t = float(temperature[0].item())
         p_raw = float(top_p[0].item())
         k_raw = int(top_k[0].item())
 
-        kc = torch.zeros(
-            (self.num_fast_layers, 1, self.fast_n_local_heads, self.num_codebooks, self.fast_head_dim),
-            dtype=dt,
-            device=dev,
-        )
-        vc = torch.zeros(
-            (self.num_fast_layers, 1, self.fast_n_local_heads, self.num_codebooks, self.fast_head_dim),
-            dtype=dt,
-            device=dev,
-        )
-        out = torch.zeros((self.num_codebooks,), dtype=torch.int64, device=dev)
+        kc = self.kc_buf
+        vc = self.vc_buf
+        out = self.out_buf
         out[0] = first_code[0]
 
         h0 = self.fast_project_in(slow_hidden)
@@ -810,7 +876,7 @@ class FastARLoopTorchWrapper(nn.Module):
             out[idx] = nxt[0]
             prev = nxt.view(1, 1)
 
-        return out
+        return out.clone()
 
 
 class CodecDecoderTorchWrapper(nn.Module):
@@ -891,15 +957,14 @@ def pre_encode_speaker_references(
 
     registry = json.loads(registry_path.read_text(encoding="utf-8"))
     voices_dir.mkdir(parents=True, exist_ok=True)
-    primary_cache = get_persistent_cache_dir(model_fingerprint) / "voices"
+    primary_cache = get_persistent_cache_dir(model_fingerprint) / "voices_full"
     primary_cache.mkdir(parents=True, exist_ok=True)
     legacy_caches = get_voice_cache_dirs(model_fingerprint)
 
     base_dir = registry_path.parent
     total = len(registry)
-    print(f"Pre-encoding {total} speaker references into {voices_dir} (max {MAX_REF_AUDIO_SECONDS}s per speaker)...")
+    print(f"Pre-encoding {total} speaker references into {voices_dir} (full untruncated audio)...")
 
-    max_samples = int(MAX_REF_AUDIO_SECONDS * sample_rate)
     encoded_ok = 0
     restored_from_cache = 0
 
@@ -952,9 +1017,6 @@ def pre_encode_speaker_references(
         if int(sr) != sample_rate:
             g = math.gcd(int(sr), sample_rate)
             mono = resample_poly(mono, sample_rate // g, int(sr) // g).astype(np.float32)
-
-        if mono.size > max_samples:
-            mono = mono[:max_samples]
 
         remainder = mono.size % hop_length
         if remainder:
@@ -1046,7 +1108,7 @@ def run_stage_voices_and_codec(
             shutil.copy2(src_path / tok_file, tok_dir / tok_file)
             shutil.copy2(src_path / tok_file, out_dir / tok_file)
 
-    model_cache_dir = get_persistent_cache_dir(fingerprint) / "model"
+    model_cache_dir = get_persistent_cache_dir(fingerprint) / "model_v4"
     model_cache_dir.mkdir(parents=True, exist_ok=True)
 
     # Always prepare FP32 codec (used for speaker encoding + safe CPU/fallback decoding)
@@ -1127,30 +1189,24 @@ def run_stage_voices_and_codec(
         if cached_dec_fp16.is_file():
             print(f"Restoring {dec_fp16_path.name} from cache...")
             shutil.copy2(cached_dec_fp16, dec_fp16_path)
-        elif not torch.cuda.is_available():
-            print(
-                "[Info] Skipping codec_decoder_fp16 trace on CPU build host "
-                "(CPU Half Conv1d is unsupported/slow); keeping codec_decoder_fp32.pt."
-            )
         else:
             try:
-                codec_fp16 = load_arktts_codec(src_path, device="cpu")
-                prepare_module_for_torchscript(codec_fp16, torch.float16)
-                dec_wrapper_16 = CodecDecoderTorchWrapper(codec_fp16).eval()
-                dummy_vq = torch.zeros((1, num_cb, 8), dtype=torch.long)
-                with torch.no_grad():
-                    traced_16 = torch.jit.trace(dec_wrapper_16, (dummy_vq,))
+                loaded_32 = torch.jit.load(str(dec_fp32_path), map_location="cpu").eval()
+                traced_16 = loaded_32.half()
                 rewrite_cpu_device_constants(traced_16)
                 torch.jit.save(traced_16, str(dec_fp16_path))
                 assert_no_cpu_device_constants(traced_16, dec_fp16_path, "codec_decoder_fp16")
-                validate_codec_decoder_pt(dec_fp16_path, num_cb)
+                if torch.cuda.is_available():
+                    validate_codec_decoder_pt(dec_fp16_path, num_cb)
+                else:
+                    print(f"  Saved {dec_fp16_path.name} (converted from traced FP32 module for CUDA FP16 inference)")
                 shutil.copy2(dec_fp16_path, cached_dec_fp16)
-                del traced_16, dec_wrapper_16, codec_fp16
+                del traced_16, loaded_32
             except Exception as exc:
                 if dec_fp16_path.is_file():
                     dec_fp16_path.unlink()
                 print(
-                    f"[Warn] Codec Decoder FP16 trace unsupported on CPU host ({exc}); "
+                    f"[Warn] Codec Decoder FP16 export failed ({exc}); "
                     "will keep Codec Decoder in FP32."
                 )
             gc.collect()
@@ -1244,7 +1300,7 @@ def run_stage_fast_ar(
 ) -> None:
     print(f"=== [Stage 2/4] Exporting Fast AR TorchScript ({','.join(precisions)}) ===")
     fingerprint = hashlib.sha256(str(model_id).encode()).hexdigest()[:16]
-    model_cache_dir = get_persistent_cache_dir(fingerprint) / "model_v3"
+    model_cache_dir = get_persistent_cache_dir(fingerprint) / "model_v4"
     model_cache_dir.mkdir(parents=True, exist_ok=True)
 
     dtype_map = {"fp16": torch.float16, "fp32": torch.float32}
@@ -1345,7 +1401,7 @@ def run_stage_slow_ar(
 ) -> None:
     print(f"=== [Stage 3/4] Exporting Slow AR TorchScript ({','.join(precisions)}) ===")
     fingerprint = hashlib.sha256(str(model_id).encode()).hexdigest()[:16]
-    model_cache_dir = get_persistent_cache_dir(fingerprint) / "model_v3"
+    model_cache_dir = get_persistent_cache_dir(fingerprint) / "model_v4"
     model_cache_dir.mkdir(parents=True, exist_ok=True)
 
     dtype_map = {"fp16": torch.float16, "fp32": torch.float32}
@@ -1401,7 +1457,7 @@ def run_stage_manifest(
         "num_codebooks": int(cfg.num_codebooks),
         "codebook_size": int(cfg.codebook_size),
         "codec_hop_length": int(getattr(cfg, "codec_hop_length", 2048)),
-        "stream_context_frames": 16,
+        "stream_context_frames": 12,
         "stream_guard_frames": 0,
         "num_layers": int(cfg.n_layer),
         "num_fast_layers": int(cfg.n_fast_layer),
@@ -1414,6 +1470,9 @@ def run_stage_manifest(
         "semantic_end_id": int(cfg.semantic_end_id),
         "im_end_id": int(getattr(cfg, "eos_token_id", 151645)),
         "slow_logits_layout": "relative_semantic_then_eos",
+        "ras_window_size": 10,
+        "ras_temperature": 1.0,
+        "ras_top_p": 0.9,
     }
     manifest_path = out_dir / "runtime_manifest.json"
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")

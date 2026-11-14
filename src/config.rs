@@ -153,7 +153,7 @@ fn default_codec_hop_length() -> usize {
     2048
 }
 fn default_stream_context_frames() -> usize {
-    16
+    12
 }
 fn default_stream_guard_frames() -> usize {
     0

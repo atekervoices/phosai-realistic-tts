@@ -48,33 +48,28 @@ pub fn sample_logits(
     });
 
     let max_sorted = logits[order[0]] as f64;
-    let mut probs: Vec<f64> = order
-        .iter()
-        .take(k_limit)
-        .map(|&idx| {
-            let v = logits[idx] as f64;
-            if v.is_finite() {
-                (v - max_sorted).exp()
-            } else {
-                0.0
-            }
-        })
-        .collect();
-
-    let sum_probs: f64 = probs.iter().sum();
-    if sum_probs <= 0.0 {
-        return Ok(order[0]);
+    let mut full_probs = vec![0.0_f64; vocab_size];
+    let mut sum_full = 0.0_f64;
+    for (rank, &idx) in order.iter().enumerate() {
+        let v = logits[idx] as f64;
+        if v.is_finite() {
+            let e = (v - max_sorted).exp();
+            full_probs[rank] = e;
+            sum_full += e;
+        }
     }
-    for p in &mut probs {
-        *p /= sum_probs;
+
+    if sum_full <= 0.0 {
+        return Ok(order[0]);
     }
 
     let mut cumsum = 0.0;
-    let mut keep_count = probs.len();
-    for (rank, &p) in probs.iter().enumerate() {
+    let mut keep_count = k_limit;
+    for (rank, &e) in full_probs.iter().take(k_limit).enumerate() {
+        let p = e / sum_full;
         cumsum += p;
         if cumsum > p_thresh && rank > 0 {
-            keep_count = rank;
+            keep_count = rank + 1;
             break;
         }
     }
@@ -344,7 +339,7 @@ impl Audio8TchEngine {
     ) -> Result<Self> {
         let _no_grad = tch::no_grad_guard();
         unsafe {
-            torch_sys::cuda::atc_set_benchmark_cudnn(0);
+            torch_sys::cuda::atc_set_benchmark_cudnn(1);
         }
 
         let has_cuda = tch::Cuda::is_available();
@@ -663,15 +658,6 @@ impl Audio8TchEngine {
             values[eos_index] = f32::NEG_INFINITY;
         }
 
-        let normal_idx = sample_logits(&values, temperature, top_p, top_k, rng)?;
-        let high_idx = sample_logits(
-            &values,
-            self.manifest.ras_temperature,
-            self.manifest.ras_top_p,
-            top_k,
-            rng,
-        )?;
-
         let map_index = |idx: usize| -> i64 {
             if idx == eos_index {
                 stop
@@ -682,11 +668,31 @@ impl Audio8TchEngine {
             }
         };
 
+        let normal_idx = sample_logits(&values, temperature, top_p, top_k, rng)?;
         let normal = map_index(normal_idx);
-        let high = map_index(high_idx);
 
         if normal >= begin && normal <= end && previous.contains(&normal) {
-            Ok(high)
+            let mut ras_values = values.clone();
+            for &prev_tok in previous {
+                if prev_tok >= begin && prev_tok <= end {
+                    let prev_idx = if eos_first {
+                        (prev_tok - begin + 1) as usize
+                    } else {
+                        (prev_tok - begin) as usize
+                    };
+                    if prev_idx < ras_values.len() && prev_idx != eos_index {
+                        ras_values[prev_idx] -= 3.5;
+                    }
+                }
+            }
+            let high_idx = sample_logits(
+                &ras_values,
+                self.manifest.ras_temperature,
+                self.manifest.ras_top_p,
+                top_k.max(64),
+                rng,
+            )?;
+            Ok(map_index(high_idx))
         } else {
             Ok(normal)
         }
@@ -766,7 +772,7 @@ impl Audio8TchEngine {
                 &logits,
                 &ras_window,
                 step,
-                16,
+                2,
                 temperature,
                 top_p,
                 top_k,

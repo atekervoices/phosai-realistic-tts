@@ -27,9 +27,9 @@ impl Default for GenerationParams {
     fn default() -> Self {
         Self {
             temperature: 0.7,
-            top_p: 0.8,
-            top_k: 30,
-            max_new_tokens: 2048,
+            top_p: 0.9,
+            top_k: 50,
+            max_new_tokens: 512,
             seed: 42,
             speaker_tag: None,
         }
@@ -312,9 +312,12 @@ impl TtsEngine {
                 .then(|| audio::StreamingLanczosResampler::new(native_sr, out_sr));
             let mut client_open = true;
 
+            let word_count = sentence.split_whitespace().count();
+            let dynamic_max_frames = ((word_count * 16) + 36).clamp(40, params.max_new_tokens);
+
             engine.generate_frames_with_callback(
                 &prompt,
-                params.max_new_tokens,
+                dynamic_max_frames,
                 params.temperature,
                 params.top_p,
                 params.top_k,
@@ -397,9 +400,12 @@ impl TtsEngine {
                 .then(|| audio::StreamingLanczosResampler::new(native_sr, out_sr));
             let mut client_open = true;
 
+            let word_count = sentence.split_whitespace().count();
+            let dynamic_max_frames = ((word_count * 16) + 36).clamp(40, params.max_new_tokens);
+
             engine.generate_frames_with_callback(
                 &prompt,
-                params.max_new_tokens,
+                dynamic_max_frames,
                 params.temperature,
                 params.top_p,
                 params.top_k,

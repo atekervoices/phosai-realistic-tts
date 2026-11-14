@@ -412,6 +412,9 @@ impl Audio8PromptTokenizer {
         let cb_size = manifest.codebook_size as i64;
         let sem_begin = manifest.semantic_begin_id;
 
+        // Normalize whitespace to match ArkttsProcessor._clean_text (collapse internal newlines/tabs)
+        let cleaned_target: String = target_text.split_whitespace().collect::<Vec<_>>().join(" ");
+
         if let Some(codes) = reference_codes {
             let (rows, cols) = codes.dim();
             if rows != num_cb {
@@ -421,24 +424,34 @@ impl Audio8PromptTokenizer {
                     num_cb
                 );
             }
-            let raw_ref = reference_text.unwrap_or("").trim();
+            let raw_ref: String = reference_text
+                .unwrap_or("")
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ");
             let ref_txt = if raw_ref.contains("<|speaker:") {
-                raw_ref.to_string()
+                raw_ref
             } else {
                 format!("<|speaker:0|>{}", raw_ref)
             };
 
-            let prefix_str = format!(
-                "<|im_start|>system\nconvert the provided text to speech reference to the following:\n\nText:\n{}\n\nSpeech:\n",
-                ref_txt
-            );
-            let suffix_str = format!(
-                "<|im_end|>\n<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant\n<|voice|>",
-                target_text.trim()
-            );
-
-            let prefix_tokens = self.encode_with_specials(&prefix_str)?;
-            let suffix_tokens = self.encode_with_specials(&suffix_str)?;
+            // Encode each template part separately to match ArkttsProcessor._encode_parts_to_ids
+            // and prevent BPE merges across template boundaries (e.g. '.' + '\n\n' -> token 382).
+            let prefix_tokens = self.encode_parts(&[
+                "<|im_start|>",
+                "system\nconvert the provided text to speech reference to the following:\n\nText:\n",
+                &ref_txt,
+                "\n\nSpeech:\n",
+            ])?;
+            let suffix_tokens = self.encode_parts(&[
+                "<|im_end|>\n",
+                "<|im_start|>",
+                &format!("user\n{}", cleaned_target),
+                "<|im_end|>\n",
+                "<|im_start|>",
+                "assistant\n",
+                "<|voice|>",
+            ])?;
 
             let total_len = prefix_tokens.len() + cols + suffix_tokens.len();
             let mut prompt = Array3::<i64>::zeros((1, num_cb + 1, total_len));
@@ -466,16 +479,30 @@ impl Audio8PromptTokenizer {
 
             Ok(prompt)
         } else {
-            let prompt_str = format!(
-                "<|im_start|>system\nconvert the provided text to speech<|im_end|>\n<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant\n<|voice|>",
-                target_text.trim()
-            );
-            let tokens = self.encode_with_specials(&prompt_str)?;
+            let tokens = self.encode_parts(&[
+                "<|im_start|>",
+                "system\nconvert the provided text to speech",
+                "<|im_end|>\n",
+                "<|im_start|>",
+                &format!("user\n{}", cleaned_target),
+                "<|im_end|>\n",
+                "<|im_start|>",
+                "assistant\n",
+                "<|voice|>",
+            ])?;
             let mut prompt = Array3::<i64>::zeros((1, num_cb + 1, tokens.len()));
             for (c, &tok) in tokens.iter().enumerate() {
                 prompt[[0, 0, c]] = tok;
             }
             Ok(prompt)
         }
+    }
+
+    fn encode_parts(&self, parts: &[&str]) -> Result<Vec<i64>> {
+        let mut out = Vec::new();
+        for part in parts {
+            out.extend(self.encode_with_specials(part)?);
+        }
+        Ok(out)
     }
 }
