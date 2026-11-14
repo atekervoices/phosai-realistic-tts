@@ -7,7 +7,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::audio;
-use crate::onnx_engine::Audio8OnnxEngine;
+use crate::tch_engine::Audio8TchEngine;
 
 /// Entry in `speaker_registry.json` from `speaker_references_bundle.zip`.
 /// Supports both `{"reference_audio": "...", "reference_text": "...", "source_path": "..."}`
@@ -275,7 +275,7 @@ impl VoiceRegistry {
     pub fn ensure_encoded_profile(
         &mut self,
         name: &str,
-        engine: &mut Audio8OnnxEngine,
+        engine: &mut Audio8TchEngine,
     ) -> Result<VoiceProfile> {
         let key = self
             .resolve_key(name)
@@ -332,7 +332,7 @@ impl VoiceRegistry {
         reference_text: String,
         language: String,
         wav_bytes: &[u8],
-        engine: &mut Audio8OnnxEngine,
+        engine: &mut Audio8TchEngine,
     ) -> Result<(VoiceProfile, bool)> {
         let mut hasher = Sha256::new();
         hasher.update(wav_bytes);

@@ -258,7 +258,7 @@ pub fn normalize_and_chunk(text: &str, lang: &str) -> Vec<String> {
 }
 
 /// Text normalizer + HuggingFace tokenizer + Audio8 DualAR `[1, num_codebooks + 1, seq_len]` prompt builder.
-/// Mirrors `Audio8_TTS/onnx_runtime/arktts_runtime/prompt.py` (`PromptEncoder`) and `spark-tts-rs`.
+/// Tokenizes text prompts and acoustic code matrices matching `spark-tts-rs`.
 pub struct Audio8PromptTokenizer {
     tokenizer: Tokenizer,
     special_tokens: HashMap<String, i64>,
@@ -275,7 +275,7 @@ impl Audio8PromptTokenizer {
             nested
         } else {
             anyhow::bail!(
-                "tokenizer.json not found in {} (run `python scripts/export_onnx.py` first to export the model into `./model`)",
+                "tokenizer.json not found in {} (run `python scripts/export_torchscript.py` first to export the model into `./model`)",
                 model_dir.display()
             );
         };

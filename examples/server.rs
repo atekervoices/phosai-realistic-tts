@@ -13,10 +13,10 @@ use audio8_tts_rs::server::run_server;
 #[command(
     author,
     version,
-    about = "Audio8-TTS-RS: Multi-Concurrency Rust ONNX Runtime (GPU/CPU) & SGLang-Omni Streaming Server"
+    about = "Audio8-TTS-RS: Native Rust + LibTorch (tch-rs) CUDA/CPU Streaming TTS Server"
 )]
 struct Args {
-    /// Directory containing exported ONNX models (`runtime_manifest.json`, `slow_ar_*.onnx`, `fast_ar_*.onnx`, `codec_decoder_*.onnx`, `tokenizer.json`)
+    /// Directory containing exported TorchScript models (`runtime_manifest.json`, `slow_ar_*.pt`, `fast_ar_*.pt`, `codec_decoder_*.pt`, `tokenizer.json`)
     #[arg(long)]
     model_dir: Option<PathBuf>,
 
@@ -28,29 +28,25 @@ struct Args {
     #[arg(long)]
     voices_dir: Option<PathBuf>,
 
-    /// Execution device for ONNX Runtime (`auto`, `gpu`/`cuda`/`directml`, or `cpu`)
+    /// Execution device for LibTorch (`auto`, `gpu`/`cuda`, or `cpu`)
     #[arg(long)]
     device: Option<String>,
 
-    /// DualAR ONNX precision (`fp16`, `fp32`, `int8`, `int4`)
+    /// DualAR TorchScript precision (`fp16` or `fp32`)
     #[arg(long)]
     precision: Option<String>,
 
-    /// Codec decoder ONNX precision (`fp16` or `fp32`)
+    /// Codec decoder TorchScript precision (`fp16` or `fp32`)
     #[arg(long)]
     codec_precision: Option<String>,
 
-    /// CPU intra-op thread count per ONNX Runtime worker
+    /// CPU intra-op thread count per worker
     #[arg(long)]
     threads: Option<usize>,
 
-    /// Number of parallel ONNX Runtime worker sessions in the multi-concurrency pool
+    /// Number of parallel LibTorch worker instances in the multi-concurrency pool
     #[arg(long)]
     workers: Option<usize>,
-
-    /// Optional SGLang-Omni server URL (e.g. `http://127.0.0.1:18472`) for continuous-batched GPU LLM mode
-    #[arg(long)]
-    sglang_url: Option<String>,
 
     /// Default output PCM sample rate (`16000` for drop-in LiveKit `sparktts.py` compatibility, or `44100` for native Audio8 studio quality)
     #[arg(long)]
@@ -98,43 +94,18 @@ async fn main() -> Result<()> {
     let precision = env_opt(args.precision, "ARKTTS_PRECISION");
     let codec_precision = env_opt(args.codec_precision, "ARKTTS_CODEC_PRECISION");
     let threads = env_or(args.threads, "ARKTTS_THREADS", 4);
-    let workers = env_or(args.workers, "ARKTTS_WORKERS", 2);
-    let sglang_url = env_opt(args.sglang_url, "SGLANG_URL");
+    let workers = env_or(args.workers, "ARKTTS_WORKERS", 1);
     let output_sample_rate = env_or(args.output_sample_rate, "OUTPUT_SAMPLE_RATE", 16000);
     let port = env_or(args.port, "PORT", 18473);
 
     println!("============================================================");
-    println!("Initializing Audio8-TTS-RS Multi-Concurrency Inference Engine");
+    println!("Initializing Audio8-TTS-RS Native LibTorch Inference Engine");
     println!("  Model Dir          : {}", model_dir.display());
     println!("  Voices Dir         : {}", voices_dir.display());
     println!("  Device Preference  : {:?}", device);
-    println!("  ONNX Worker Pool   : {} workers", workers);
+    println!("  LibTorch Workers   : {}", workers);
     println!("  Output Sample Rate : {} Hz", output_sample_rate);
-    if let Some(ref url) = sglang_url {
-        println!("  SGLang-Omni URL    : {}", url);
-    }
     println!("============================================================");
-
-    if let Some(ref url) = sglang_url {
-        println!("⏳ Waiting for SGLang GPU backend at {} to be ready...", url);
-        let client = reqwest::Client::new();
-        let health_url = format!("{}/health", url.trim_end_matches('/'));
-        let start = std::time::Instant::now();
-        let mut ready = false;
-        while start.elapsed() < std::time::Duration::from_secs(120) {
-            if let Ok(resp) = client.get(&health_url).send().await {
-                if resp.status().is_success() {
-                    println!("✅ SGLang GPU backend is ready and responding at {}!", url);
-                    ready = true;
-                    break;
-                }
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-        }
-        if !ready {
-            println!("⚠️ Warning: SGLang backend at {} did not respond to /health within 120s; starting anyway.", url);
-        }
-    }
 
     let engine = Arc::new(Audio8InferenceEngine::from_cli(
         &model_dir,
@@ -145,7 +116,6 @@ async fn main() -> Result<()> {
         device,
         threads,
         workers,
-        sglang_url,
         output_sample_rate,
     )?);
 

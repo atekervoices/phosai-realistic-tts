@@ -53,8 +53,7 @@ fn decode_wav_reader<R: std::io::Read>(
     }
 }
 
-/// Prepare 44.1 kHz mono reference audio for `codec_encoder.onnx` (matching `VoiceRegistration._prepare_audio`
-/// in `Audio8_TTS/onnx_runtime/arktts_runtime/registration.py`):
+/// Prepare 44.1 kHz mono reference audio for `codec_encoder_fp32.pt`:
 /// - Clamps to `[-1.0, 1.0]`
 /// - Ensures length is a non-zero multiple of `hop_length` (2048 samples) by zero-padding the tail.
 pub fn prepare_reference_audio(samples: &[f32], hop_length: usize) -> Result<Vec<f32>> {

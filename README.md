@@ -1,38 +1,32 @@
 # Phosai Realistic TTS (`phosai/realistic-v1`)
 
-High-performance, low-latency Rust TTS inference engine and microservice for **`phosai/realistic-v1`** (fine-tuned from `Edge0/Audio8-TTS-Realistic-Air` 0.6B DualAR).
+High-performance, low-latency native **Rust + LibTorch (`tch-rs` 0.18 / PyTorch 2.5.1)** TTS inference server for **`phosai/realistic-v1`** (fine-tuned from `Edge0/Audio8-TTS-Realistic-Air` 0.6B DualAR).
 
-The engine runs directly on **ONNX Runtime (`ort`)** across both **NVIDIA GPU** (CUDA / TensorRT) and **CPU** (multi-threaded INT8/FP32), featuring built-in African language text normalization, zero-latency reference encoding for 94 bundled voices, and 100% protocol compatibility with OpenAI TTS, `spark-tts-rs`, and LiveKit Agents (`/ws/tts`).
+The engine executes pre-exported TorchScript `.pt` modules directly in-process via C++ LibTorch across both **NVIDIA GPU (`LibTorchCUDA`, FP16)** and **CPU (`LibTorchCPU`, FP32)**—with zero Python sidecars, zero ONNX Runtime, built-in African language text normalization, zero-latency reference encoding for 94 bundled voices, and protocol compatibility with OpenAI TTS, `spark-tts-rs`, and LiveKit Agents.
 
 ---
 
 ## Key Features
 
-- **Blazing Fast Low Latency (TTFB < 200 ms on GPU, < 600 ms on CPU)**:
-  - **Zero Reference-Encoding Latency**: All 94 speaker profiles from `speaker_registry.json` are pre-encoded into `[10, T]` VQ codec token matrices. No neural speech encoding is needed at request time.
-  - **Sliding-Window Streaming Vocoder (`ProgressiveAudio8Streamer`)**: Emits the first audio chunk within 8 frames (~370 ms) and subsequent chunks every 12 frames (~550 ms) with 10 ms inter-chunk crossfading to eliminate boundary clicks.
+- **In-Process Native LibTorch (`tch-rs`) Pipeline**:
+  - **GPU-Resident KV Cache**: Slow AR 0.6B transformer keeps its KV cache `[L, 1, H_kv, max_seq, head_dim]` pinned on CUDA VRAM and updates in-place without host-device transfers.
+  - **Fused Single-Call `FastARLoop`**: Executes all 9 Fast AR codebook steps (`pos=0..9`) + GPU Top-K/Top-P/Temperature sampling in a single LibTorch call per frame.
+  - **Zero-Latency Startup Warmup**: Pre-warms cuBLAS / cuDNN workspaces on startup (`cudnn.benchmark = 0`) so the very first client request responds without cold-start stalls.
+  - **Sliding-Window Streaming Vocoder (`ProgressiveAudio8Streamer`)**: Emits the first audio chunk after 2 frames (~93 ms generated audio) and subsequent chunks every 3 frames with linear crossfading and guard trimming.
   - **Repetition-Aware Sampling (RAS)** + First-Frame EOS Masking + Cyclical Loop Detector prevents hallucinations or silence.
-- **Unified GPU & CPU Runtime**:
-  - Automatically detects NVIDIA GPU (`CUDAExecutionProvider` / `TensorRTExecutionProvider`) or falls back to multi-threaded CPU (`CPUExecutionProvider`).
-  - Supports INT8 dynamic quantization for CPU deployments and FP32 for GPU.
+- **Zero Reference-Encoding Latency**: All 94 speaker profiles from `speaker_registry.json` are pre-encoded into `[10, T]` VQ codec token matrices at image build time.
 - **Multilingual Native Text Normalization (`phosai-normalizer-rs`)**:
   - Built-in rule-based text normalizer for **Luganda (`lug`)**, **Swahili (`swa`)**, **Acholi (`ach`)**, **Runyankole (`nyn`)**, **Ateso (`teo`)**, **Kinyarwanda (`kin`)**, and **English (`eng`)**.
-  - Automatically handles currency symbols, cardinal & ordinal numbers, dates, times, measurements, abbreviations, and phone numbers.
 - **Drop-in Protocol Compatibility**:
   - **OpenAI Audio API**: `POST /v1/audio/speech`
   - **Chunked PCM Streaming**: `POST /v1/audio/speech/stream`
   - **Bi-directional WebSockets**: `GET /v1/audio/speech/stream/ws`
   - **Zero-Shot Voice Cloning**: `POST /v1/audio/speech/clone/upload` and `GET /v1/audio/speech/clone/ws`
   - **Interactive Swagger UI**: `GET /docs` and `GET /openapi.json`
-- **Configurable Output Sample Rate**:
-  - Native model sample rate is `44100 Hz`.
-  - Configurable to standard telephony/agent `16000 Hz` or native `44100 Hz` via anti-aliased Lanczos-3 resampler.
 
 ---
 
 ## 94 Pre-Baked African Speaker Voices
-
-The engine bundles 94 pre-encoded speaker profiles with short aliases across diverse African accents and languages:
 
 | Language | Code | Bundled Voices / Sample Aliases |
 | :--- | :--- | :--- |
@@ -52,16 +46,13 @@ The engine bundles 94 pre-encoded speaker profiles with short aliases across div
 
 ## Quick Start with Docker (Recommended)
 
-The easiest way to run the service is with Docker Compose. The Docker image pre-bakes the ONNX models and all 94 speaker voice matrices at build time.
+The single `audio8-tts-rs` container compiles `tch-rs` against LibTorch 2.5.1 (CUDA 12.4) and pre-bakes all TorchScript `.pt` modules plus all 94 speaker voice matrices at image build time.
 
-### 1. Start the Container
 ```bash
-docker compose up -d
-```
-
-### 2. View Server Logs
-```bash
-docker compose logs -f
+cp .env.example .env
+# Set HF_TOKEN in .env if phosai/realistic-v1 is private/gated
+docker compose up -d --build
+docker compose logs -f audio8-tts-rs
 ```
 
 The server listens on `http://0.0.0.0:18473`:
@@ -72,71 +63,13 @@ The server listens on `http://0.0.0.0:18473`:
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
-| `ARKTTS_DEVICE` | `auto` | Execution device: `auto` (GPU if available, else CPU), `cuda`, or `cpu`. |
-| `ARKTTS_WORKERS` | `1` | Number of parallel ONNX Runtime session worker threads. |
-| `ARKTTS_THREADS` | `4` | Number of intra-op compute threads per ONNX session. |
+| `ARKTTS_DEVICE` | `auto` | Execution device: `auto` (CUDA GPU if available, else CPU), `cuda`/`gpu`, or `cpu`. |
+| `ARKTTS_PRECISION` | `fp16` | Slow/Fast AR TorchScript precision (`fp16` for GPU, `fp32` for CPU). |
+| `ARKTTS_WORKERS` | `1` | Number of parallel LibTorch worker instances (`1` recommended on 8 GB VRAM GPUs). |
+| `ARKTTS_THREADS` | `4` | CPU compute thread count when running on CPU. |
 | `OUTPUT_SAMPLE_RATE` | `16000` | Target audio sample rate (`16000` or `44100`). |
 | `PORT` | `18473` | Server HTTP and WebSocket port. |
-| `HF_TOKEN` | *(optional)* | Hugging Face token (only required during container build if model is gated). |
-
----
-
-## API Usage Examples
-
-### 1. Synthesize Speech (OpenAI Compatible)
-```bash
-curl -X POST http://localhost:18473/v1/audio/speech \
-  -H "Content-Type: application/json" \
-  -d '{
-    "input": "Habari za asubuhi, jina langu ni Musa. Karibu sana!",
-    "voice": "crestai_waxal_tts:swa_male_3",
-    "response_format": "wav",
-    "speed": 1.0
-  }' \
-  --output speech.wav
-```
-
-### 2. Stream Audio via HTTP Chunked PCM
-```bash
-curl -X POST http://localhost:18473/v1/audio/speech/stream \
-  -H "Content-Type: application/json" \
-  -d '{
-    "input": "Oli otya nnyabo, leero tulina essanyu lingi okukusisinkana.",
-    "voice": "crestai_vo_tts:lug_female_10"
-  }' \
-  --output stream.pcm
-```
-
-### 3. List Available Voices
-```bash
-curl http://localhost:18473/v1/voices
-```
-
-### 4. Check Health & Active Provider
-```bash
-curl http://localhost:18473/health
-```
-Response:
-```json
-{
-  "status": "ok",
-  "engine": "audio8-tts-rs",
-  "provider": "CPUExecutionProvider",
-  "workers": 1,
-  "sample_rate": 16000,
-  "native_sample_rate": 44100,
-  "voices_loaded": 94
-}
-```
-
-### 5. Dynamic Zero-Shot Voice Cloning
-```bash
-curl -X POST http://localhost:18473/v1/audio/speech/clone/upload \
-  -F "reference_audio=@my_sample.wav" \
-  -F "reference_text=This is the exact spoken text in the sample audio." \
-  -F "text=Hello, this is my cloned voice speaking through Phosai Realistic TTS." \
-  --output cloned_output.pcm
-```
+| `HF_TOKEN` | *(optional)* | Hugging Face token (needed during Docker build if `phosai/realistic-v1` is private/gated). |
 
 ---
 
@@ -144,42 +77,29 @@ curl -X POST http://localhost:18473/v1/audio/speech/clone/upload \
 
 ### Prerequisites
 - **Rust 1.80+** (`cargo`, `rustc`)
-- **Python 3.10+** (only for ONNX export script)
-- **CMake & C++ Build Tools** (for compiling ONNX Runtime native bindings)
+- **Python 3.10+** with **PyTorch 2.5.1** (`cu124` for GPU or CPU wheel) and `LIBTORCH_USE_PYTORCH=1`
 
-### Step 1: Export ONNX Models & Voices
+### Step 1: Export TorchScript Models & Voices
 ```bash
-python scripts/export_onnx.py \
+python scripts/export_torchscript.py \
   --model-id phosai/realistic-v1 \
   --output-dir model \
   --voices-dir voices \
   --registry speaker_registry.json \
-  --precision fp32
+  --precision fp16,fp32
 ```
 
 ### Step 2: Run the Server Binary
 ```bash
-cargo run --release --features download-binaries --bin server -- \
+export LIBTORCH_USE_PYTORCH=1
+export LIBTORCH_BYPASS_VERSION_CHECK=1
+cargo run --release --bin server -- \
   --model-dir model \
   --voices-dir voices \
   --device auto \
   --output-sample-rate 16000 \
   --port 18473
 ```
-
----
-
-## Streaming WebSocket Integration
-
-Connect directly via WebSocket on `ws://localhost:18473/v1/audio/speech/stream/ws`:
-```json
-{
-  "text": "Mu kubalukawo kw'akawuka ka sennyiga kolona abantu baatandika okukola masiki mu ngoye.",
-  "voice": "crestai_vo_tts:lug_female_10",
-  "max_new_tokens": 2048
-}
-```
-The server immediately begins yielding binary 16kHz PCM audio frames with sub-second TTFA (<600 ms).
 
 ---
 

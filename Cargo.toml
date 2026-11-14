@@ -3,7 +3,7 @@ name = "audio8-tts-rs"
 version = "0.1.0"
 edition = "2021"
 authors = ["PhosAI <info@phosai.com>"]
-description = "Low-latency Rust ONNX Runtime (GPU/CPU) & SGLang-Omni TTS inference server for Audio8-TTS (phosai/realistic-air-v1)"
+description = "Low-latency native Rust + LibTorch (tch-rs) CUDA/CPU streaming TTS server for Audio8-TTS (phosai/realistic-v1)"
 autoexamples = false
 
 [[bin]]
@@ -11,15 +11,9 @@ name = "server"
 path = "examples/server.rs"
 
 [dependencies]
-# ONNX Runtime with GPU (CUDA) & CPU execution providers
-ort = { version = "=2.0.0-rc.14", default-features = false, features = [
-    "std",
-    "ndarray",
-    "tracing",
-    "api-31",
-    "cuda",
-    "copy-dylibs",
-] }
+# Native LibTorch C++ / CUDA & CPU inference bindings (PyTorch 2.5.1 / CUDA 12.4)
+tch = "0.18"
+torch-sys = "0.18"
 ndarray = "0.17"
 
 # Text Normalizer & Tokenizer
@@ -33,7 +27,6 @@ hound = "3.5"
 # Hashing, Randomness & Encoding
 sha2 = "0.10"
 hex = "0.4"
-base64 = "0.22"
 rand = "0.8"
 
 # Error Handling
@@ -51,15 +44,8 @@ futures = "0.3"
 multer = "3.0"
 mime = "0.3"
 
-# HTTP Client for SGLang-Omni high-concurrency GPU backend
-reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls", "blocking"] }
-
 # CLI & OpenAPI Documentation
 clap = { version = "4.0", features = ["derive"] }
 utoipa = { version = "4.2", features = ["yaml"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-
-[features]
-default = []
-download-binaries = ["ort/download-binaries", "ort/tls-native", "ort/lax-feature-matching"]

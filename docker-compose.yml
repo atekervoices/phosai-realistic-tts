@@ -1,46 +1,6 @@
 services:
-  # ── 1. SGLang-Omni High-Throughput Continuous-Batching GPU Backend ──
-  sglang-backend:
-    build:
-      context: .
-      dockerfile: Dockerfile.sglang
-    container_name: sglang-backend
-    restart: unless-stopped
-    ports:
-      - "8010:8010"
-    environment:
-      - CUDA_VISIBLE_DEVICES=0
-      - NVIDIA_VISIBLE_DEVICES=all
-      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
-      - MODEL=${MODEL:-phosai/realistic-v1}
-      - HF_TOKEN=${HF_TOKEN:-}
-      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN:-}
-      - AUDIO8_TTS_STREAM_ENABLED=1
-      - AUDIO8_TTS_STREAM_CHUNK_FRAMES=6
-      - AUDIO8_TTS_STREAM_CONTEXT_FRAMES=16
-      - AUDIO8_TTS_DTYPE=${AUDIO8_TTS_DTYPE:-float16}
-      - AUDIO8_TTS_ATTENTION_BACKEND=flashinfer
-      - AUDIO8_TTS_MEM_FRACTION_STATIC=0.25
-      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-      - AUDIO8_VOCODER_DEVICE=cuda:0
-      - AUDIO8_PREPROCESSING_DEVICE=cpu
-      - FLASHINFER_DISABLE_VERSION_CHECK=1
-      - PORT=8010
-      - HOST=0.0.0.0
-    volumes:
-      - ~/.cache/huggingface:/root/.cache/huggingface
-      - ~/.cache/flashinfer:/tmp/audio8-flashinfer
-      - ./models:/models
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-    shm_size: '4gb'
-
-  # ── 2. Unified Rust Gateway: Streaming HTTP/WS, African Normalizer & 94 Voices ──
+  # Unified Rust + LibTorch (tch-rs) TorchScript Inference Server:
+  # Native CUDA FP16 / CPU FP32 SlowAR + Fused FastARLoop + Streaming ArkttsCodec
   audio8-tts-rs:
     build:
       context: .
@@ -48,23 +8,23 @@ services:
       args:
         HF_TOKEN: ${HF_TOKEN:-}
         MODEL_ID: ${MODEL_ID:-phosai/realistic-v1}
+        EXPORT_PRECISION: ${EXPORT_PRECISION:-fp16,fp32}
     container_name: audio8-tts-rs
     restart: unless-stopped
     ports:
       - "${PORT:-18473}:18473"
     environment:
-      - SGLANG_URL=http://sglang-backend:8010
       - ARKTTS_MODEL_DIR=/app/model
       - ARKTTS_VOICES_DIR=/app/voices
       - ARKTTS_DEVICE=${ARKTTS_DEVICE:-auto}
+      - ARKTTS_PRECISION=${ARKTTS_PRECISION:-fp16}
       - ARKTTS_WORKERS=${ARKTTS_WORKERS:-1}
       - ARKTTS_THREADS=${ARKTTS_THREADS:-4}
       - OUTPUT_SAMPLE_RATE=${OUTPUT_SAMPLE_RATE:-16000}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
       - PORT=18473
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
-    depends_on:
-      - sglang-backend
     deploy:
       resources:
         reservations:

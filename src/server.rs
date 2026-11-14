@@ -174,7 +174,7 @@ pub struct ErrorResponse {
         ErrorResponse
     )),
     tags(
-        (name = "audio8-tts-rs", description = "Audio8-TTS Rust ONNX Runtime & SGLang-Omni API (compatible with spark-tts-rs)")
+        (name = "audio8-tts-rs", description = "Audio8-TTS Native Rust + LibTorch (tch-rs) API (compatible with spark-tts-rs)")
     )
 )]
 pub struct ApiDoc;

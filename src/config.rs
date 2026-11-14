@@ -4,30 +4,29 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Execution device preference for ONNX Runtime sessions.
+/// Execution device preference for LibTorch (`tch-rs`) inference.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ExecutionDevice {
-    /// Try GPU (CUDA -> TensorRT -> DirectML) first, fallback to CPU automatically.
+    /// Use CUDA GPU automatically when available, otherwise fall back to CPU.
     Auto,
-    /// Require or prioritize GPU execution providers (CUDA / TensorRT / DirectML).
+    /// Require or prioritize CUDA GPU execution (`Device::Cuda(0)`).
     Gpu,
-    /// Run strictly on CPUExecutionProvider.
+    /// Run strictly on CPU (`Device::Cpu`).
     Cpu,
 }
 
 impl ExecutionDevice {
     pub fn from_str_lossy(value: &str) -> Self {
         match value.trim().to_lowercase().as_str() {
-            "gpu" | "cuda" | "tensorrt" | "trt" | "dml" | "directml" => Self::Gpu,
+            "gpu" | "cuda" => Self::Gpu,
             "cpu" => Self::Cpu,
             _ => Self::Auto,
         }
     }
 }
 
-/// Manifest describing the exported Audio8 ONNX runtime files and model constants.
-/// Compatible with `Audio8_TTS/onnx_runtime/model/runtime_manifest.json`.
+/// Manifest describing exported Audio8 TorchScript runtime files and model constants.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuntimeManifest {
     #[serde(default = "default_model_id")]
@@ -68,7 +67,7 @@ pub struct RuntimeManifest {
     /// Samples per codec frame (2048 at 44.1kHz -> ~46.44ms per frame).
     #[serde(default = "default_codec_hop_length")]
     pub codec_hop_length: usize,
-    /// Sliding context window in frames for streaming vocoder decoding (128).
+    /// Sliding context window in frames for streaming vocoder decoding (48).
     #[serde(default = "default_stream_context_frames")]
     pub stream_context_frames: usize,
     /// Guard frames trimmed from the right edge of streaming decode windows (1).
@@ -133,12 +132,7 @@ fn default_precision() -> String {
     "fp16".to_string()
 }
 fn default_available_precisions() -> Vec<String> {
-    vec![
-        "fp16".to_string(),
-        "fp32".to_string(),
-        "int8".to_string(),
-        "int4".to_string(),
-    ]
+    vec!["fp16".to_string(), "fp32".to_string()]
 }
 fn default_codec_precision() -> String {
     "fp16".to_string()
@@ -159,7 +153,7 @@ fn default_codec_hop_length() -> usize {
     2048
 }
 fn default_stream_context_frames() -> usize {
-    128
+    48
 }
 fn default_stream_guard_frames() -> usize {
     1
@@ -319,19 +313,23 @@ impl RuntimeManifest {
                 return candidate;
             }
         }
-        let by_precision = model_dir.join(format!("slow_ar_{precision}.onnx"));
+        let by_precision = model_dir.join(format!("slow_ar_{precision}.pt"));
         if by_precision.is_file() {
             return by_precision;
         }
-        let fp32 = model_dir.join("slow_ar_fp32.onnx");
+        let fp16 = model_dir.join("slow_ar_fp16.pt");
+        if fp16.is_file() {
+            return fp16;
+        }
+        let fp32 = model_dir.join("slow_ar_fp32.pt");
         if fp32.is_file() {
             return fp32;
         }
-        let default_name = model_dir.join("slow_ar.onnx");
+        let default_name = model_dir.join("slow_ar.pt");
         if default_name.is_file() {
             return default_name;
         }
-        fp32
+        by_precision
     }
 
     pub fn resolve_fast_model(&self, model_dir: &Path, precision: &str) -> PathBuf {
@@ -347,23 +345,23 @@ impl RuntimeManifest {
                 return candidate;
             }
         }
-        let by_precision = model_dir.join(format!("fast_ar_{precision}.onnx"));
+        let by_precision = model_dir.join(format!("fast_ar_{precision}.pt"));
         if by_precision.is_file() {
             return by_precision;
         }
-        let int8 = model_dir.join("fast_ar_int8.onnx");
-        if int8.is_file() {
-            return int8;
+        let fp16 = model_dir.join("fast_ar_fp16.pt");
+        if fp16.is_file() {
+            return fp16;
         }
-        let fp32 = model_dir.join("fast_ar_fp32.onnx");
+        let fp32 = model_dir.join("fast_ar_fp32.pt");
         if fp32.is_file() {
             return fp32;
         }
-        let default_name = model_dir.join("fast_ar.onnx");
+        let default_name = model_dir.join("fast_ar.pt");
         if default_name.is_file() {
             return default_name;
         }
-        fp32
+        by_precision
     }
 
     pub fn resolve_codec_decoder_model(&self, model_dir: &Path, codec_precision: &str) -> PathBuf {
@@ -373,19 +371,19 @@ impl RuntimeManifest {
                 return candidate;
             }
         }
-        let by_precision = model_dir.join(format!("codec_decoder_{codec_precision}.onnx"));
+        let by_precision = model_dir.join(format!("codec_decoder_{codec_precision}.pt"));
         if by_precision.is_file() {
             return by_precision;
         }
-        let fp32 = model_dir.join("codec_decoder_fp32.onnx");
-        if fp32.is_file() {
-            return fp32;
-        }
-        let fp16 = model_dir.join("codec_decoder_fp16.onnx");
+        let fp16 = model_dir.join("codec_decoder_fp16.pt");
         if fp16.is_file() {
             return fp16;
         }
-        model_dir.join("codec_decoder.onnx")
+        let fp32 = model_dir.join("codec_decoder_fp32.pt");
+        if fp32.is_file() {
+            return fp32;
+        }
+        model_dir.join("codec_decoder.pt")
     }
 
     pub fn resolve_codec_encoder_model(&self, model_dir: &Path) -> Option<PathBuf> {
@@ -396,12 +394,12 @@ impl RuntimeManifest {
             }
         }
         let candidates = [
-            model_dir.join("registration").join("codec_encoder.onnx"),
-            model_dir.join("registration").join("codec_encoder_fp16.onnx"),
-            model_dir.join("registration").join("codec_encoder_fp32.onnx"),
-            model_dir.join("codec_encoder.onnx"),
-            model_dir.join("codec_encoder_fp32.onnx"),
-            model_dir.join("codec_encoder_fp16.onnx"),
+            model_dir.join("registration").join("codec_encoder_fp32.pt"),
+            model_dir.join("registration").join("codec_encoder.pt"),
+            model_dir.join("registration").join("codec_encoder_fp16.pt"),
+            model_dir.join("codec_encoder_fp32.pt"),
+            model_dir.join("codec_encoder.pt"),
+            model_dir.join("codec_encoder_fp16.pt"),
         ];
         candidates.into_iter().find(|p| p.is_file())
     }
@@ -419,7 +417,6 @@ pub struct TtsEngineConfig {
     pub device: ExecutionDevice,
     pub threads: usize,
     pub num_workers: usize,
-    pub sglang_url: Option<String>,
     pub output_sample_rate: u32,
     pub default_voice: Option<String>,
 }
@@ -435,8 +432,7 @@ impl Default for TtsEngineConfig {
             codec_precision: None,
             device: ExecutionDevice::Auto,
             threads: 4,
-            num_workers: 2,
-            sglang_url: None,
+            num_workers: 1,
             output_sample_rate: 16000,
             default_voice: Some("crestai_vo_tts:lug_female_10".to_string()),
         }
